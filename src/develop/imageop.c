@@ -2926,6 +2926,135 @@ static void _iop_plugin_body_pressed(GtkGestureSingle *gesture,
   }
 }
 
+typedef struct dt_iop_header_gesture_t
+{
+  gboolean touch, moved, reordering;
+  GtkWidget *scroll;
+} dt_iop_header_gesture_t;
+
+static void _header_restore_scroll(dt_iop_header_gesture_t *state)
+{
+  if(state->scroll)
+  {
+    gtk_scrolled_window_set_kinetic_scrolling(GTK_SCROLLED_WINDOW(state->scroll), TRUE);
+    g_clear_object(&state->scroll);
+  }
+}
+
+static void _header_gesture_free(gpointer data)
+{
+  dt_iop_header_gesture_t *state = data;
+  _header_restore_scroll(state);
+  g_free(state);
+}
+
+static gboolean _header_gesture_on_button(GtkGesture *gesture)
+{
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (gesture, gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture)));
+  GtkWidget *header = dt_gui_get_widget(gesture);
+  GtkWidget *target = event ? gtk_get_event_widget((GdkEvent *)event) : NULL;
+  for(; target && target != header; target = gtk_widget_get_parent(target))
+    if(GTK_IS_BUTTON(target)) return TRUE;
+  return FALSE;
+}
+
+static void _header_gesture_pressed(GtkGestureSingle *gesture, gint n_press,
+                                     double x, double y, dt_iop_header_gesture_t *state)
+{
+  _header_restore_scroll(state);
+  state->moved = _header_gesture_on_button(GTK_GESTURE(gesture));
+  state->reordering = FALSE;
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
+  GdkDevice *source = event ? gdk_event_get_source_device(event) : NULL;
+  state->touch = gtk_gesture_single_get_current_sequence(gesture)
+    || (source && gdk_device_get_source(source) == GDK_SOURCE_TOUCHSCREEN);
+}
+
+static void _header_start_reorder(GtkGesture *gesture, double x, double y,
+                                   dt_iop_header_gesture_t *state)
+{
+  GtkWidget *header = dt_gui_get_widget(gesture);
+  if(state->moved || state->reordering || _header_gesture_on_button(gesture)) return;
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (gesture, gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture)));
+  if(!event) return;
+  state->moved = state->reordering = TRUE;
+  GtkWidget *scroll = gtk_widget_get_ancestor(header, GTK_TYPE_SCROLLED_WINDOW);
+  if(scroll && gtk_scrolled_window_get_kinetic_scrolling(GTK_SCROLLED_WINDOW(scroll)))
+  {
+    state->scroll = g_object_ref(scroll);
+    gtk_scrolled_window_set_kinetic_scrolling(GTK_SCROLLED_WINDOW(scroll), FALSE);
+  }
+  dt_gui_claim(gesture);
+  if(!gtk_drag_begin_with_coordinates(header, gtk_drag_source_get_target_list(header),
+                                       GDK_ACTION_COPY, GDK_BUTTON_PRIMARY, (GdkEvent *)event, x, y))
+  {
+    state->reordering = FALSE;
+    _header_restore_scroll(state);
+  }
+}
+
+static void _header_gesture_hold(GtkGestureLongPress *gesture, double x, double y,
+                                  dt_iop_header_gesture_t *state)
+{
+  if(state->touch) _header_start_reorder(GTK_GESTURE(gesture), x, y, state);
+}
+
+static void _header_gesture_motion(GtkGestureDrag *gesture, double dx, double dy,
+                                    dt_iop_header_gesture_t *state)
+{
+  double x, y;
+  if(!gtk_gesture_drag_get_start_point(gesture, &x, &y)
+     || !gtk_drag_check_threshold(dt_gui_get_widget(gesture), x, y, x + dx, y + dy)) return;
+  if(!state->touch) _header_start_reorder(GTK_GESTURE(gesture), x, y, state);
+  state->moved = TRUE;
+}
+
+static void _header_gesture_cancel(GtkGesture *gesture, GdkEventSequence *sequence,
+                                    dt_iop_header_gesture_t *state)
+{
+  state->moved = TRUE;
+  if(!state->reordering) _header_restore_scroll(state);
+}
+
+static void _header_reorder_end(GtkWidget *header, GdkDragContext *context,
+                                dt_iop_header_gesture_t *state)
+{
+  state->moved = TRUE;
+  state->reordering = FALSE;
+  _header_restore_scroll(state);
+}
+
+static void _header_gesture_unmap(GtkWidget *header, dt_iop_header_gesture_t *state)
+{
+  state->moved = TRUE;
+  _header_restore_scroll(state);
+}
+
+static GtkGestureSingle *_header_connect_gestures(GtkWidget *header)
+{
+  dt_iop_header_gesture_t *state = g_new0(dt_iop_header_gesture_t, 1);
+  g_object_set_data_full(G_OBJECT(header), "module-header-gesture", state, _header_gesture_free);
+  gtk_widget_add_events(header, GDK_TOUCH_MASK);
+  GtkGestureSingle *click = dt_gui_connect_click(header, _header_gesture_pressed, NULL, state);
+  GtkGesture *drag = dt_gui_connect_drag(header, NULL, NULL, _header_gesture_motion, state);
+  GtkGesture *hold = gtk_gesture_long_press_new(header);
+  dt_gui_add_controller(header, hold);
+  gtk_gesture_single_set_touch_only(GTK_GESTURE_SINGLE(hold), TRUE);
+  gtk_gesture_group(GTK_GESTURE(click), drag);
+  gtk_gesture_group(GTK_GESTURE(click), hold);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(drag), GTK_PHASE_CAPTURE);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(hold), GTK_PHASE_CAPTURE);
+  g_signal_connect(hold, "pressed", G_CALLBACK(_header_gesture_hold), state);
+  g_signal_connect(drag, "cancel", G_CALLBACK(_header_gesture_cancel), state);
+  g_signal_connect(header, "drag-end", G_CALLBACK(_header_reorder_end), state);
+  g_signal_connect(header, "unmap", G_CALLBACK(_header_gesture_unmap), state);
+  return click;
+}
+
 static void _iop_plugin_header_released(GtkGestureSingle *gesture,
                                         gint n_press,
                                         gdouble x,
@@ -2934,6 +3063,8 @@ static void _iop_plugin_header_released(GtkGestureSingle *gesture,
 {
   if(n_press >= 2) return;
   GtkWidget *const header = dt_gui_get_widget(gesture);
+  dt_iop_header_gesture_t *state = g_object_get_data(G_OBJECT(header), "module-header-gesture");
+  if(state && (state->moved || state->reordering)) return;
 
   // ignore clicks on buttons inside the header (presets, reset, enable, multiinstance)
 #if GTK_CHECK_VERSION(4, 0, 0)
@@ -3559,7 +3690,10 @@ void dt_iop_gui_set_expander(dt_iop_module_t *module)
 
   static const GtkTargetEntry target_list[] = { { "iop", GTK_TARGET_SAME_APP, DND_TARGET_IOP } };
 
-  gtk_drag_source_set(header_evb, GDK_BUTTON1_MASK, target_list, 1, GDK_ACTION_COPY);
+  // finger swipes scroll; touch reordering starts only after a stationary hold
+  gtk_drag_source_set(header_evb, 0, target_list, 1, GDK_ACTION_COPY);
+  gtk_widget_set_tooltip_text(header_evb,
+    _("tap to expand or collapse\nhold, then drag to reorder with touch"));
   gtk_drag_dest_set(expander, GTK_DEST_DEFAULT_DROP | GTK_DEST_DEFAULT_HIGHLIGHT, target_list, 1, GDK_ACTION_COPY);
   g_signal_connect(expander, "drag-motion", G_CALLBACK(_on_drag_motion), module);
   g_signal_connect(expander, "drag-drop", G_CALLBACK(_on_drag_drop), module);
@@ -3571,7 +3705,7 @@ void dt_iop_gui_set_expander(dt_iop_module_t *module)
   // would also bridge "cancel" to a synthetic release, which -- after the
   // presets menu (opened by the real release) grabs the pointer and cancels
   // the gesture -- would open the menu a second time
-  GtkGestureSingle *const header_gesture = dt_gui_connect_click(header_evb, NULL, NULL, module);
+  GtkGestureSingle *const header_gesture = _header_connect_gestures(header_evb);
   g_signal_connect(header_gesture, "released",
                    G_CALLBACK(_iop_plugin_header_released), module);
   dt_gui_connect_motion(header_evb, NULL,
