@@ -106,8 +106,13 @@ changes (where available).
   can scroll the side panel without changing values; horizontal drags
   adjust sliders. Tapping a dropdown entry selects it on release.
 
-- Added an optional darktable-touch theme with larger controls, roomier
-  lists and wider scrollbars that follow the configured font size and DPI.
+- Histogram exposure and black-point adjustments now support finger drags
+  without requiring a mouse hover first.
+
+- Added an optional darktable-touch theme with larger controls and roomier
+  lists that follow the configured font size and DPI.
+
+- Resizable dialogs, including preferences and import, now allow maximizing.
 
 - The code has received a large set of changes in preparation of the
   Gtk4 migration.
