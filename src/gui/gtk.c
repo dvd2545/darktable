@@ -783,7 +783,7 @@ static gboolean _draw_borders(GtkWidget *widget,
 
   // keep the arrow small inside the larger touch target
   gdk_cairo_set_source_rgba(cr, &color);
-  const float arrow = DT_PIXEL_APPLY_DPI(6);
+  const float arrow = DT_PIXEL_APPLY_DPI(2.4);
   cairo_translate(cr, width / 2, height / 2);
 
   switch(which)
@@ -2510,7 +2510,7 @@ static void _init_main_table(GtkWidget *container)
   for(int i = 0; i < 4; i++)
   {
     GtkWidget *toggle = *toggles[i] =
-      _init_outer_border(DT_PIXEL_APPLY_DPI(32), DT_PIXEL_APPLY_DPI(32), borders[i]);
+      _init_outer_border(DT_PIXEL_APPLY_DPI(13), DT_PIXEL_APPLY_DPI(13), borders[i]);
     gtk_widget_set_halign(toggle, horizontal[i]);
     gtk_widget_set_valign(toggle, vertical[i]);
     gtk_widget_set_margin_start(toggle, DT_PIXEL_APPLY_DPI(8));
@@ -3598,8 +3598,8 @@ static GtkWidget *_panel_resize_border(GtkWidget *panel, GtkWidget *toggle, cons
   GtkWidget *handle = gtk_drawing_area_new();
   gtk_widget_set_name(handle, name);
   dt_gui_add_class(handle, "dt_panel_resize_border");
-  gtk_widget_set_size_request(handle, horizontal ? -1 : DT_PIXEL_APPLY_DPI(32),
-                              horizontal ? DT_PIXEL_APPLY_DPI(32) : -1);
+  gtk_widget_set_size_request(handle, horizontal ? -1 : DT_PIXEL_APPLY_DPI(13),
+                              horizontal ? DT_PIXEL_APPLY_DPI(13) : -1);
   gtk_container_add(GTK_CONTAINER(border), handle);
   g_signal_connect(handle, "draw", G_CALLBACK(_panel_border_draw), NULL);
   _panel_handle_connect(handle, panel);

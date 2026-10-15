@@ -115,7 +115,7 @@ static void _resize_test(dt_ui_panel_t panel, double dx, double dy,
   gtk_grid_attach(GTK_GRID(grid), bottom, 0, 1, 3, 1);
   GtkWidget *target = darktable.gui->ui->panels[panel];
   GtkWidget *toggle = gtk_drawing_area_new();
-  gtk_widget_set_size_request(toggle, 32, 32);
+  gtk_widget_set_size_request(toggle, 13, 13);
   GtkWidget *border = _panel_resize_border(target, toggle,
     panel == DT_UI_PANEL_LEFT ? "panel-handle-left"
     : panel == DT_UI_PANEL_RIGHT ? "panel-handle-right" : "panel-handle-bottom");
@@ -223,12 +223,12 @@ static void _border_layout_test(gboolean horizontal)
   GtkWidget *window = gtk_offscreen_window_new();
   GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   g_object_ref_sink(panel);
-  GtkWidget *toggle = _init_outer_border(32, 32,
+  GtkWidget *toggle = _init_outer_border(13, 13,
     horizontal ? DT_UI_BORDER_BOTTOM : DT_UI_BORDER_LEFT);
   GtkWidget *border = _panel_resize_border(panel, toggle,
     horizontal ? "panel-handle-bottom" : "panel-handle-left");
   gtk_container_add(GTK_CONTAINER(window), border);
-  gtk_window_set_default_size(GTK_WINDOW(window), horizontal ? 400 : 32, horizontal ? 32 : 400);
+  gtk_window_set_default_size(GTK_WINDOW(window), horizontal ? 400 : 13, horizontal ? 13 : 400);
   gtk_widget_show_all(window);
   gtk_container_check_resize(GTK_CONTAINER(window));
   GtkAllocation allocation;
