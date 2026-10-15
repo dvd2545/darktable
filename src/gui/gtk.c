@@ -2445,6 +2445,34 @@ static void _init_widgets(dt_gui_gtk_t *gui)
 
 static const dt_action_def_t _action_def_focus_tabs;
 
+static gboolean _panel_toggle_position(GtkOverlay *overlay, GtkWidget *toggle,
+                                        GdkRectangle *allocation, gpointer user_data)
+{
+  GtkWidget *handle = g_object_get_data(G_OBJECT(toggle), "panel-resize-handle");
+  if(!handle) return FALSE;
+  int x, y;
+  if(!gtk_widget_translate_coordinates(handle, GTK_WIDGET(overlay), 0, 0, &x, &y)) return FALSE;
+  GtkRequisition natural;
+  gtk_widget_get_preferred_size(toggle, NULL, &natural);
+  allocation->width = natural.width;
+  allocation->height = natural.height;
+  allocation->x = CLAMP(x + (gtk_widget_get_allocated_width(handle) - natural.width) / 2,
+                         0, MAX(0, gtk_widget_get_allocated_width(GTK_WIDGET(overlay)) - natural.width));
+  allocation->y = CLAMP(y + (gtk_widget_get_allocated_height(handle) - natural.height) / 2,
+                         0, MAX(0, gtk_widget_get_allocated_height(GTK_WIDGET(overlay)) - natural.height));
+  return TRUE;
+}
+
+static void _panel_toggle_attach(GtkWidget *overlay, GtkWidget *border, GtkWidget *toggle)
+{
+  // use the workspace overlay so the larger button is not clipped to the thin divider
+  g_object_set_data(G_OBJECT(toggle), "panel-resize-handle", gtk_bin_get_child(GTK_BIN(border)));
+  g_object_ref(toggle);
+  gtk_container_remove(GTK_CONTAINER(border), toggle);
+  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), toggle);
+  g_object_unref(toggle);
+}
+
 static void _init_main_table(GtkWidget *container)
 {
   GtkWidget *widget;
@@ -2462,9 +2490,12 @@ static void _init_main_table(GtkWidget *container)
    * initialize the center top/center/bottom
    */
   GtkWidget *bordergrid = gtk_grid_new();
+  GtkWidget *workspace_overlay = gtk_overlay_new();
+  gtk_container_add(GTK_CONTAINER(workspace_overlay), bordergrid);
+  g_signal_connect(workspace_overlay, "get-child-position", G_CALLBACK(_panel_toggle_position), NULL);
   gtk_widget_set_hexpand(bordergrid, TRUE);
   gtk_widget_set_vexpand(bordergrid, TRUE);
-  gtk_grid_attach(GTK_GRID(container), bordergrid, 2, 1, 1, 1);
+  gtk_grid_attach(GTK_GRID(container), workspace_overlay, 2, 1, 1, 1);
   widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_widget_set_hexpand(GTK_WIDGET(widget), TRUE);
   gtk_widget_set_vexpand(GTK_WIDGET(widget), TRUE);
@@ -2520,7 +2551,7 @@ static void _init_main_table(GtkWidget *container)
     dt_gui_add_class(toggle, "dt_panel_toggle");
     if(borders[i] == DT_UI_BORDER_TOP)
     {
-      gtk_widget_set_size_request(toggle, DT_PIXEL_APPLY_DPI(64), DT_PIXEL_APPLY_DPI(13));
+      gtk_widget_set_size_request(toggle, DT_PIXEL_APPLY_DPI(96), DT_PIXEL_APPLY_DPI(20));
       gtk_overlay_add_overlay(GTK_OVERLAY(ocda), toggle);
     }
   }
@@ -2595,18 +2626,21 @@ static void _init_main_table(GtkWidget *container)
   /* initialize right panel */
   _ui_init_panel_right(darktable.gui->ui, container);
 
-  gtk_grid_attach(GTK_GRID(bordergrid),
-                  _panel_resize_border(darktable.gui->ui->panels[DT_UI_PANEL_LEFT],
-                                       darktable.gui->widgets.left_border, "panel-handle-left"),
+  GtkWidget *left_border = _panel_resize_border(darktable.gui->ui->panels[DT_UI_PANEL_LEFT],
+                                               darktable.gui->widgets.left_border, "panel-handle-left");
+  GtkWidget *right_border = _panel_resize_border(darktable.gui->ui->panels[DT_UI_PANEL_RIGHT],
+                                                darktable.gui->widgets.right_border, "panel-handle-right");
+  GtkWidget *bottom_border = _panel_resize_border(darktable.gui->ui->panels[DT_UI_PANEL_BOTTOM],
+                                                 darktable.gui->widgets.bottom_border, "panel-handle-bottom");
+  gtk_grid_attach(GTK_GRID(bordergrid), left_border,
                   0, 0, 1, 1);
-  gtk_grid_attach(GTK_GRID(bordergrid),
-                  _panel_resize_border(darktable.gui->ui->panels[DT_UI_PANEL_RIGHT],
-                                       darktable.gui->widgets.right_border, "panel-handle-right"),
+  gtk_grid_attach(GTK_GRID(bordergrid), right_border,
                   2, 0, 1, 1);
-  gtk_grid_attach(GTK_GRID(bordergrid),
-                  _panel_resize_border(darktable.gui->ui->panels[DT_UI_PANEL_BOTTOM],
-                                       darktable.gui->widgets.bottom_border, "panel-handle-bottom"),
+  gtk_grid_attach(GTK_GRID(bordergrid), bottom_border,
                   0, 1, 3, 1);
+  _panel_toggle_attach(workspace_overlay, left_border, darktable.gui->widgets.left_border);
+  _panel_toggle_attach(workspace_overlay, right_border, darktable.gui->widgets.right_border);
+  _panel_toggle_attach(workspace_overlay, bottom_border, darktable.gui->widgets.bottom_border);
 
   gtk_widget_show_all(container);
 
@@ -3602,8 +3636,8 @@ static GtkWidget *_panel_resize_border(GtkWidget *panel, GtkWidget *toggle, cons
 
   gtk_widget_set_halign(toggle, GTK_ALIGN_CENTER);
   gtk_widget_set_valign(toggle, GTK_ALIGN_CENTER);
-  gtk_widget_set_size_request(toggle, DT_PIXEL_APPLY_DPI(horizontal ? 64 : 13),
-                              DT_PIXEL_APPLY_DPI(horizontal ? 13 : 64));
+  gtk_widget_set_size_request(toggle, DT_PIXEL_APPLY_DPI(horizontal ? 96 : 20),
+                              DT_PIXEL_APPLY_DPI(horizontal ? 20 : 96));
   gtk_widget_set_margin_start(toggle, 0);
   gtk_widget_set_margin_end(toggle, 0);
   gtk_widget_set_margin_top(toggle, 0);

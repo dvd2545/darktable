@@ -227,18 +227,38 @@ static void _border_layout_test(gboolean horizontal)
     horizontal ? DT_UI_BORDER_BOTTOM : DT_UI_BORDER_LEFT);
   GtkWidget *border = _panel_resize_border(panel, toggle,
     horizontal ? "panel-handle-bottom" : "panel-handle-left");
-  gtk_container_add(GTK_CONTAINER(window), border);
-  gtk_window_set_default_size(GTK_WINDOW(window), horizontal ? 400 : 13, horizontal ? 13 : 400);
+  GtkWidget *overlay = gtk_overlay_new();
+  GtkWidget *grid = gtk_grid_new();
+  gtk_container_add(GTK_CONTAINER(window), overlay);
+  gtk_container_add(GTK_CONTAINER(overlay), grid);
+  g_signal_connect(overlay, "get-child-position", G_CALLBACK(_panel_toggle_position), NULL);
+  GtkWidget *center = gtk_drawing_area_new();
+  gtk_widget_set_hexpand(center, TRUE);
+  gtk_widget_set_vexpand(center, TRUE);
+  gtk_grid_attach(GTK_GRID(grid), center, 1, 0, 1, 1);
+  gtk_grid_attach(GTK_GRID(grid), border, 0, horizontal ? 1 : 0, horizontal ? 2 : 1, 1);
+  _panel_toggle_attach(overlay, border, toggle);
+  gtk_window_set_default_size(GTK_WINDOW(window), 400, 400);
   gtk_widget_show_all(window);
   gtk_container_check_resize(GTK_CONTAINER(window));
   GtkAllocation allocation;
   gtk_widget_get_allocation(toggle, &allocation);
-  assert_int_equal(allocation.width, horizontal ? 64 : 13);
-  assert_int_equal(allocation.height, horizontal ? 13 : 64);
+  assert_int_equal(allocation.width, horizontal ? 96 : 20);
+  assert_int_equal(allocation.height, horizontal ? 20 : 96);
   int x, y;
-  assert_true(gtk_widget_translate_coordinates(toggle, border, 0, 0, &x, &y));
-  assert_int_equal(x + allocation.width / 2, gtk_widget_get_allocated_width(border) / 2);
-  assert_int_equal(y + allocation.height / 2, gtk_widget_get_allocated_height(border) / 2);
+  assert_true(gtk_widget_translate_coordinates(toggle, overlay, 0, 0, &x, &y));
+  if(horizontal)
+  {
+    assert_int_equal(x + allocation.width / 2, gtk_widget_get_allocated_width(overlay) / 2);
+    assert_int_equal(gtk_widget_get_allocated_height(border), 13);
+    assert_true(allocation.height > gtk_widget_get_allocated_height(border));
+  }
+  else
+  {
+    assert_int_equal(y + allocation.height / 2, gtk_widget_get_allocated_height(overlay) / 2);
+    assert_int_equal(gtk_widget_get_allocated_width(border), 13);
+    assert_true(allocation.width > gtk_widget_get_allocated_width(border));
+  }
   GtkWidget *handle = gtk_bin_get_child(GTK_BIN(border));
   assert_int_equal(gtk_widget_get_allocated_width(handle), gtk_widget_get_allocated_width(border));
   assert_int_equal(gtk_widget_get_allocated_height(handle), gtk_widget_get_allocated_height(border));
