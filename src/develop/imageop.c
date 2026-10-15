@@ -2929,6 +2929,8 @@ static void _iop_plugin_body_pressed(GtkGestureSingle *gesture,
 typedef struct dt_iop_header_gesture_t
 {
   gboolean touch, moved, reordering;
+  guint32 press_time;
+  double root_x, root_y;
   GtkWidget *scroll;
 } dt_iop_header_gesture_t;
 
@@ -2962,11 +2964,16 @@ static gboolean _header_gesture_on_button(GtkGesture *gesture)
 static void _header_gesture_pressed(GtkGestureSingle *gesture, gint n_press,
                                      double x, double y, dt_iop_header_gesture_t *state)
 {
-  _header_restore_scroll(state);
-  state->moved = _header_gesture_on_button(GTK_GESTURE(gesture));
-  state->reordering = FALSE;
   const GdkEvent *event = gtk_gesture_get_last_event
     (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
+  const guint32 time = event ? gdk_event_get_time(event) : 0;
+  // GTK can replay the initial press after a panel swipe; do not erase its movement
+  if(time && state->press_time && (gint32)(time - state->press_time) <= 0) return;
+  _header_restore_scroll(state);
+  state->press_time = time;
+  state->moved = _header_gesture_on_button(GTK_GESTURE(gesture));
+  state->reordering = FALSE;
+  if(event) gdk_event_get_root_coords(event, &state->root_x, &state->root_y);
   GdkDevice *source = event ? gdk_event_get_source_device(event) : NULL;
   state->touch = gtk_gesture_single_get_current_sequence(gesture)
     || (source && gdk_device_get_source(source) == GDK_SOURCE_TOUCHSCREEN);
@@ -3015,7 +3022,19 @@ static void _header_gesture_motion(GtkGestureDrag *gesture, double dx, double dy
 static void _header_gesture_cancel(GtkGesture *gesture, GdkEventSequence *sequence,
                                     dt_iop_header_gesture_t *state)
 {
-  state->moved = TRUE;
+  GdkEvent *event = dt_gui_get_current_event(GTK_EVENT_CONTROLLER(gesture));
+  const GdkEvent *last = event ? event : gtk_gesture_get_last_event(gesture, sequence);
+  if(last)
+  {
+    double x = state->root_x, y = state->root_y;
+    gdk_event_get_root_coords(last, &x, &y);
+    if(dt_gdk_event_get_type(last) == GDK_TOUCH_CANCEL
+       || gtk_drag_check_threshold(dt_gui_get_widget(gesture), state->root_x, state->root_y, x, y))
+      state->moved = TRUE;
+  }
+#if !GTK_CHECK_VERSION(4, 0, 0)
+  if(event) gdk_event_free(event);
+#endif
   if(!state->reordering) _header_restore_scroll(state);
 }
 
@@ -3038,13 +3057,16 @@ static GtkGestureSingle *_header_connect_gestures(GtkWidget *header)
   dt_iop_header_gesture_t *state = g_new0(dt_iop_header_gesture_t, 1);
   g_object_set_data_full(G_OBJECT(header), "module-header-gesture", state, _header_gesture_free);
   gtk_widget_add_events(header, GDK_TOUCH_MASK);
-  GtkGestureSingle *click = dt_gui_connect_click(header, _header_gesture_pressed, NULL, state);
+  GtkGestureSingle *click = dt_gui_connect_click(header, NULL, NULL, NULL);
+  GtkGestureSingle *press = dt_gui_connect_click(header, _header_gesture_pressed, NULL, state);
   GtkGesture *drag = dt_gui_connect_drag(header, NULL, NULL, _header_gesture_motion, state);
   GtkGesture *hold = gtk_gesture_long_press_new(header);
   dt_gui_add_controller(header, hold);
   gtk_gesture_single_set_touch_only(GTK_GESTURE_SINGLE(hold), TRUE);
   // keep taps on the original bubble path; only hold and drag share capture state
   gtk_gesture_group(drag, hold);
+  gtk_gesture_group(drag, GTK_GESTURE(press));
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(press), GTK_PHASE_CAPTURE);
   gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(drag), GTK_PHASE_CAPTURE);
   gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(hold), GTK_PHASE_CAPTURE);
   g_signal_connect(hold, "pressed", G_CALLBACK(_header_gesture_hold), state);
@@ -3064,6 +3086,14 @@ static void _iop_plugin_header_released(GtkGestureSingle *gesture,
   dt_iop_header_gesture_t *state = g_object_get_data(G_OBJECT(header), "module-header-gesture");
   if(n_press >= 2 && (!state || !state->touch)) return;
   if(state && (state->moved || state->reordering)) return;
+  if(state && state->touch)
+  {
+    const GdkEvent *release = gtk_gesture_get_last_event
+      (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
+    double root_x = state->root_x, root_y = state->root_y;
+    if(release) gdk_event_get_root_coords(release, &root_x, &root_y);
+    if(gtk_drag_check_threshold(header, state->root_x, state->root_y, root_x, root_y)) return;
+  }
 
   // ignore clicks on buttons inside the header (presets, reset, enable, multiinstance)
 #if GTK_CHECK_VERSION(4, 0, 0)

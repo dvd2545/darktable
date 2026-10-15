@@ -59,6 +59,8 @@ void dt_test_header_redraw(void) { }
 
 #if !GTK_CHECK_VERSION(4, 0, 0)
 static int taps;
+static gboolean replay_press, benign_cancel;
+static guint32 event_time_override;
 static void _released(GtkGestureSingle *gesture, int n_press, double x, double y, gpointer data)
 {
   dt_iop_header_gesture_t *state = g_object_get_data(G_OBJECT(dt_gui_get_widget(gesture)), "module-header-gesture");
@@ -80,26 +82,27 @@ static void _event(GtkWidget *header, GdkDevice *source, GdkEventType type, doub
   event->any.window = g_object_ref(gtk_widget_get_window(header));
   static guint32 time = 1000;
   time += 100;
+  const guint32 event_time = event_time_override ? event_time_override : time;
   if(type >= GDK_TOUCH_BEGIN && type <= GDK_TOUCH_CANCEL)
   {
     event->touch.sequence = (GdkEventSequence *)header;
     event->touch.x = event->touch.x_root = 80;
     event->touch.y = event->touch.y_root = y;
-    event->touch.time = time;
+    event->touch.time = event_time;
     event->touch.emulating_pointer = TRUE;
   }
   else if(type == GDK_MOTION_NOTIFY)
   {
     event->motion.x = event->motion.x_root = 80;
     event->motion.y = event->motion.y_root = y;
-    event->motion.time = time;
+    event->motion.time = event_time;
     event->motion.state = GDK_BUTTON1_MASK;
   }
   else
   {
     event->button.x = event->button.x_root = 80;
     event->button.y = event->button.y_root = y;
-    event->button.time = time;
+    event->button.time = event_time;
     event->button.button = GDK_BUTTON_PRIMARY;
   }
   GdkDevice *pointer = gdk_seat_get_pointer(gdk_display_get_default_seat(gdk_display_get_default()));
@@ -130,6 +133,7 @@ static void _header_test(gboolean hold, gboolean move, gboolean emulated, gboole
   GtkWidget *label_box = gtk_event_box_new();
   gtk_container_add(GTK_CONTAINER(label_box), gtk_label_new("module title"));
   gtk_box_pack_start(GTK_BOX(header_content), label_box, TRUE, TRUE, 0);
+  gtk_box_pack_end(GTK_BOX(header_content), gtk_button_new_with_label("reset"), FALSE, FALSE, 0);
   gtk_widget_set_size_request(header, 300, 60);
   gtk_box_pack_start(GTK_BOX(box), expander, FALSE, FALSE, 0);
   focus_target = header;
@@ -157,7 +161,17 @@ static void _header_test(gboolean hold, gboolean move, gboolean emulated, gboole
   taps = reorder_requests = 0;
   const gboolean pointer = mouse || emulated;
   _event(label_box, mouse ? NULL : touch, pointer ? GDK_BUTTON_PRESS : GDK_TOUCH_BEGIN, 30);
+  dt_iop_header_gesture_t *state = g_object_get_data(G_OBJECT(header), "module-header-gesture");
+  if(benign_cancel)
+    _header_gesture_cancel(GTK_GESTURE(click), gtk_gesture_single_get_current_sequence(click), state);
   if(move) _event(label_box, mouse ? NULL : touch, pointer ? GDK_MOTION_NOTIFY : GDK_TOUCH_UPDATE, -30);
+  if(move && replay_press)
+  {
+    event_time_override = state->press_time;
+    _event(label_box, touch, GDK_BUTTON_PRESS, 30);
+    event_time_override = 0;
+    assert_true(state->moved);
+  }
   if(hold)
   {
     GMainLoop *loop = g_main_loop_new(NULL, FALSE);
@@ -166,7 +180,7 @@ static void _header_test(gboolean hold, gboolean move, gboolean emulated, gboole
     g_main_loop_unref(loop);
   }
   _event(label_box, mouse ? NULL : touch,
-          cancel ? GDK_TOUCH_CANCEL : pointer ? GDK_BUTTON_RELEASE : GDK_TOUCH_END, move ? -30 : 30);
+          cancel ? GDK_TOUCH_CANCEL : pointer ? GDK_BUTTON_RELEASE : GDK_TOUCH_END, replay_press ? 30 : move ? -30 : 30);
   assert_int_equal(reorder_requests, (!move && hold) || (mouse && move) ? 1 : 0);
   assert_int_equal(taps, !move && !hold && !cancel ? 1 : 0);
   if(!move && !hold && !cancel && !mouse)
@@ -190,6 +204,18 @@ static void test_move_cancels_hold(void **state) { _header_test(TRUE, TRUE, FALS
 static void test_emulated_hold(void **state) { _header_test(TRUE, FALSE, TRUE, FALSE, FALSE); }
 static void test_mouse_drag(void **state) { _header_test(FALSE, TRUE, FALSE, TRUE, FALSE); }
 static void test_cancel(void **state) { _header_test(FALSE, FALSE, FALSE, FALSE, TRUE); }
+static void test_swipe_replayed_press(void **state)
+{
+  replay_press = TRUE;
+  _header_test(FALSE, TRUE, FALSE, FALSE, FALSE);
+  replay_press = FALSE;
+}
+static void test_recognizer_cancel_keeps_tap(void **state)
+{
+  benign_cancel = TRUE;
+  _header_test(FALSE, FALSE, FALSE, FALSE, FALSE);
+  benign_cancel = FALSE;
+}
 #endif
 
 int main(int argc, char **argv)
@@ -209,7 +235,8 @@ int main(int argc, char **argv)
     cmocka_unit_test(test_tap), cmocka_unit_test(test_emulated_tap),
     cmocka_unit_test(test_hold), cmocka_unit_test(test_swipe),
     cmocka_unit_test(test_move_cancels_hold), cmocka_unit_test(test_emulated_hold),
-    cmocka_unit_test(test_mouse_drag), cmocka_unit_test(test_cancel)
+    cmocka_unit_test(test_mouse_drag), cmocka_unit_test(test_cancel),
+    cmocka_unit_test(test_swipe_replayed_press), cmocka_unit_test(test_recognizer_cancel_keeps_tap)
   };
   return cmocka_run_group_tests(tests, NULL, NULL);
 #endif
