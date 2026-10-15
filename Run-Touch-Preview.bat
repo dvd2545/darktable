@@ -3,6 +3,7 @@ setlocal
 set "PREVIEW_DIR=%~dp0build"
 if exist "%~dp0bin\darktable.exe" set "PREVIEW_DIR=%~dp0"
 set "RUNTIME_DIR=%LOCALAPPDATA%\CodexTools\msys64\ucrt64\bin"
+if not exist "%RUNTIME_DIR%\libgtk-3-0.dll" set "RUNTIME_DIR=%USERPROFILE%\AppData\Local\Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Local\CodexTools\msys64\ucrt64\bin"
 
 if not exist "%PREVIEW_DIR%\bin\darktable.exe" (
   echo The darktable test build was not found in "%PREVIEW_DIR%\bin".
