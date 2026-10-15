@@ -130,6 +130,10 @@ changes (where available).
 - Scrolling a panel by touch releases its pointer grab when the finger is
   lifted, so other controls remain reachable after the swipe.
 
+- Hold a module header to begin reordering it by touch. Short taps expand
+  or collapse the module, while swiping before the hold scrolls the panel
+  without triggering either action.
+
 - Added an optional darktable-touch theme with larger controls and roomier
   lists that follow the configured font size and DPI.
 
