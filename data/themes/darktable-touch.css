@@ -27,9 +27,9 @@ button,
 #guides-line .dt_module_btn,
 .dt_plugin_ui #blending-tabs .dt_module_btn
 {
-  min-width: 2.25em;
-  min-height: 2.25em;
-  padding: 0.25em;
+  min-width: 1.75em;
+  min-height: 1.75em;
+  padding: 0.125em;
 }
 
 entry,
@@ -40,8 +40,8 @@ menuitem,
 popover.menu modelbutton,
 notebook tab
 {
-  min-height: 2.25em;
-  padding: 0.25em 0.5em;
+  min-height: 1.75em;
+  padding: 0.125em 0.3em;
 }
 
 checkbutton check,
@@ -57,36 +57,24 @@ radiobutton radio
 .dt_plugin_ui #bauhaus-slider,
 .dt_plugin_ui #bauhaus-combobox
 {
-  padding: 0.35em 0.25em;
-  margin: 0.25em 0;
+  padding: 0.15em 0.2em;
+  margin: 0.125em 0;
 }
 
 /* the shared custom row metric also sizes dropdown entries and icon targets */
 .dt_bauhaus
 {
-  min-height: 2.5em;
+  min-height: 1.5em;
 }
 
 #left #module-header,
 #right #module-header,
 #right #basics-header-box
 {
-  padding: 0.6em;
+  padding: 0.3em;
 }
 
 treeview.view
 {
-  -GtkTreeView-vertical-separator: 16;
-}
-
-scrollbar.vertical slider
-{
-  min-width: 1.25em;
-  min-height: 3em;
-}
-
-scrollbar.horizontal slider
-{
-  min-width: 3em;
-  min-height: 1.25em;
+  -GtkTreeView-vertical-separator: 8;
 }

@@ -307,11 +307,16 @@ void lib_histogram_update_tooltip(const dt_scopes_t *const scopes)
   g_free(tip);
 }
 
+static void _drawable_motion(GtkEventControllerMotion *controller,
+                             double x, double y, dt_scopes_t *s);
+
 static void _drawable_drag_begin(GtkGestureDrag* gesture,
                                  const gdouble start_x,
                                  const gdouble start_y,
                                  dt_scopes_t *s)
 {
+  // a finger can start dragging without a preceding mouse hover
+  _drawable_motion(NULL, start_x, start_y, s);
   if(s->highlight != DT_SCOPES_HIGHLIGHT_NONE
      && dt_scopes_func_exists(s->cur_mode, get_exposure_delta)
      && dt_gui_claim(gesture))
@@ -329,6 +334,16 @@ static void _drawable_drag_end(GtkGestureDrag* g,
                                const gdouble oy,
                                dt_scopes_t *s)
 {
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (GTK_GESTURE(g), gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(g)));
+  GdkDevice *source = event ? gdk_event_get_source_device(event) : NULL;
+  if(event && dt_gdk_event_get_type(event) == GDK_BUTTON_RELEASE
+     && source && gdk_device_get_source(source) == GDK_SOURCE_TOUCHSCREEN)
+  {
+    GdkDevice *device = gdk_event_get_device(event);
+    GdkSeat *seat = device ? gdk_device_get_seat(device) : NULL;
+    if(seat) gdk_seat_ungrab(seat);
+  }
   s->dragging = FALSE;
   dt_control_change_cursor(s->highlight == DT_SCOPES_HIGHLIGHT_NONE
                            ? "default" : "grab");
@@ -340,9 +355,11 @@ static void _drawable_drag_update(GtkGestureDrag* gesture,
                                   dt_scopes_t *s)
 {
   dt_scopes_mode_t *const cur_mode = s->cur_mode;
-  const GdkEvent *event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL);
-  if(!event) return;
-  if(gdk_event_get_event_type(event) == GDK_MOTION_NOTIFY)
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture)));
+  if(!event || !s->dragging) return;
+  if(gdk_event_get_event_type(event) == GDK_MOTION_NOTIFY
+     || gdk_event_get_event_type(event) == GDK_TOUCH_UPDATE)
   {
     // at any time user may user a modifier key to adjust speed
     // multiplier, so calculate delta since last move, rather than
@@ -363,6 +380,7 @@ static void _drawable_button_press(GtkGestureSingle *gesture,
                                    const double y,
                                    dt_scopes_t *s)
 {
+  _drawable_motion(NULL, x, y, s);
   if(s->highlight != DT_SCOPES_HIGHLIGHT_NONE
      && n_press == 2
      && dt_gui_claim(gesture))
@@ -400,6 +418,7 @@ static void _drawable_motion(GtkEventControllerMotion *controller,
 static void _drawable_leave(GtkEventControllerMotion *controller,
                             dt_scopes_t *s)
 {
+  if(s->dragging) return;
   // if dragging, gtk keeps up motion notifications until mouse button
   // is released, at which point we'll get another leave event for
   // drawable if pointer is still outside of the widget

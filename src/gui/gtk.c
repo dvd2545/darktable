@@ -6370,6 +6370,9 @@ static gboolean _resize_dialog(GtkWidget *widget, GdkEvent *event, const char *c
 
 void dt_gui_dialog_restore_size(GtkDialog *dialog, const char *conf)
 {
+  // retain dialog modality and parentage while allowing normal maximize controls
+  if(gtk_window_get_resizable(GTK_WINDOW(dialog)))
+    gtk_window_set_type_hint(GTK_WINDOW(dialog), GDK_WINDOW_TYPE_HINT_NORMAL);
   char buf[256];
   const int width = dt_conf_get_int(dt_buf_printf(buf, "ui_last/%s_dialog_width", conf));
   const int height = dt_conf_get_int(dt_buf_printf(buf, "ui_last/%s_dialog_height", conf));

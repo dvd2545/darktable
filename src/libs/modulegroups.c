@@ -1127,6 +1127,8 @@ static void _lib_modulegroups_toggle(GtkWidget *button, dt_lib_module_t *self)
       gid = k;
   }
   if(button == d->basic_btn) gid = DT_MODULEGROUP_BASICS;
+  dt_print(DT_DEBUG_INPUT, "[module touch] group=%d active=%d previous=%d",
+           gid, gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(button)), d->current);
 
   /* only deselect button if not currently searching else re-enable module */
   if(d->current == gid && gid != DT_MODULEGROUP_BASICS && !(text_entered && text_entered[0] != '\0'))

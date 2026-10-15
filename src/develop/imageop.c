@@ -2933,6 +2933,7 @@ static void _iop_plugin_header_released(GtkGestureSingle *gesture,
                                         dt_iop_module_t *module)
 {
   if(n_press >= 2) return;
+  GtkWidget *const header = dt_gui_get_widget(gesture);
 
   // ignore clicks on buttons inside the header (presets, reset, enable, multiinstance)
 #if GTK_CHECK_VERSION(4, 0, 0)
@@ -2942,15 +2943,39 @@ static void _iop_plugin_header_released(GtkGestureSingle *gesture,
    * header, including its child buttons (e.g. a press started on the header
    * and released over a button).  The surface-compare alternative is wrong:
    * gdk_event_get_surface() always returns this widget's own surface. */
-  GtkWidget *const header = dt_gui_get_widget(gesture);
   GtkWidget *target = gtk_widget_pick(header, x, y, GTK_PICK_DEFAULT);
   for(; target && target != header; target = gtk_widget_get_parent(target))
     if(GTK_IS_BUTTON(target)) return;
 #else
-  const GdkEvent *event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL);
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
+  if(event)
+  {
+    GdkDevice *source = gdk_event_get_source_device(event);
+    double root_x = 0, root_y = 0;
+    gdk_event_get_root_coords(event, &root_x, &root_y);
+    dt_print(DT_DEBUG_INPUT,
+             "[module touch] header=%s event=%d local=%.1f,%.1f root=%.1f,%.1f sequence=%p source=%d emulated=%d",
+             module->op, dt_gdk_event_get_type(event), x, y, root_x, root_y,
+             (void *)gtk_gesture_single_get_current_sequence(gesture),
+             source ? gdk_device_get_source(source) : -1,
+             gdk_event_get_pointer_emulated((GdkEvent *)event));
+    if(dt_gdk_event_get_type(event) == GDK_BUTTON_RELEASE
+       && ((source && gdk_device_get_source(source) == GDK_SOURCE_TOUCHSCREEN)
+           || gdk_event_get_pointer_emulated((GdkEvent *)event)))
+    {
+      // finish the emulated pointer grab before expansion changes the layout;
+      // otherwise the next contact can be delivered to this old header
+      GdkDevice *device = gdk_event_get_device(event);
+      GdkSeat *seat = device ? gdk_device_get_seat(device) : NULL;
+      if(seat) gdk_seat_ungrab(seat);
+    }
+  }
   if(event && GTK_IS_BUTTON(gtk_get_event_widget((GdkEvent *)event)))
     return;
 #endif
+  if(x < 0 || y < 0 || x >= gtk_widget_get_allocated_width(header)
+     || y >= gtk_widget_get_allocated_height(header)) return;
 
   const guint button = gtk_gesture_single_get_current_button(gesture);
 

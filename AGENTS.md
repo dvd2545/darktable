@@ -42,11 +42,15 @@ Ask first: adding a dependency, changing a public API or the database schema,
 touching a subsystem the task did not name, and anything CONTRIBUTING.md calls
 substantial -- discuss those before writing them, not after.
 
-Finish at a staged change, and a drafted commit message if one was asked for.
-Committing, pushing and opening the PR are the human's steps, and they will
-usually not be asked for at all. Stage only the files the task touched -- never
-`git add -A` over a tree you have not looked at -- and keep build output,
-editor files and scratch notes out of it.
+For this fork, commit and push every completed, verified change to
+`https://github.com/dvd2545/darktable` on the current feature branch. This is
+the owner's standing authorization; do not ask again for each commit or push.
+Build and run the relevant checks before committing. Keep each commit coherent
+and compilable, and report a failed push rather than claiming it succeeded.
+Do not push to `darktable-org/darktable` or force-push unless explicitly asked.
+Opening a pull request still requires a user request. Stage only the files the
+task touched -- never `git add -A` over a tree you have not looked at -- and
+keep build output, editor files and scratch notes out of it.
 
 Never reformat, rename or tidy code the task did not touch, and never fix an
 unrelated bug you notice in passing: mention it instead. Do not add a comment,

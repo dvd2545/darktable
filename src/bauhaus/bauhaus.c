@@ -4068,6 +4068,14 @@ static gboolean _popup_key_press(GtkEventControllerKey *controller,
   return TRUE;
 }
 
+static gboolean _widget_gesture_is_touch(GtkGestureSingle *gesture)
+{
+  if(gtk_gesture_single_get_current_sequence(gesture)) return TRUE;
+  const GdkEvent *event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL);
+  GdkDevice *source = event ? gdk_event_get_source_device(event) : NULL;
+  return source && gdk_device_get_source(source) == GDK_SOURCE_TOUCHSCREEN;
+}
+
 static void _widget_button_press(GtkGestureSingle *gesture,
                                  const int n_press,
                                  const double x,
@@ -4076,7 +4084,7 @@ static void _widget_button_press(GtkGestureSingle *gesture,
 {
   dt_bauhaus_widget_t *w = DT_BAUHAUS_WIDGET(widget);
   dt_bauhaus_t *bh = darktable.bauhaus;
-  if(gtk_gesture_single_get_current_sequence(gesture) && !w->touch_dragging)
+  if(_widget_gesture_is_touch(gesture) && !w->touch_dragging)
   {
     // leave the sequence unclaimed until a tap or a horizontal slider drag
     // is confirmed, so the enclosing list can recognize vertical swipes
@@ -4160,17 +4168,24 @@ static void _widget_button_release(GtkGestureSingle *gesture,
                                    GtkWidget *widget)
 {
   dt_bauhaus_widget_t *w = DT_BAUHAUS_WIDGET(widget);
-  if(w->touch_pending || w->touch_dragging
-     || gtk_gesture_single_get_current_sequence(gesture))
+  const gboolean touch = _widget_gesture_is_touch(gesture);
+  if(w->touch_pending || w->touch_dragging || touch)
   {
     const GdkEvent *event = gtk_gesture_get_last_event
       (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
-    if(!event || dt_gdk_event_get_type(event) != GDK_TOUCH_END)
+    if(!event || (dt_gdk_event_get_type(event) != GDK_TOUCH_END
+                 && !(touch && dt_gdk_event_get_type(event) == GDK_BUTTON_RELEASE)))
     {
       w->touch_pending = w->touch_dragging = FALSE;
       if(w->type == DT_BAUHAUS_SLIDER) w->slider.is_dragging = 0;
       dt_bauhaus_widget_release_quad(widget);
       return;
+    }
+    if(dt_gdk_event_get_type(event) == GDK_BUTTON_RELEASE)
+    {
+      GdkDevice *device = gdk_event_get_device(event);
+      GdkSeat *seat = device ? gdk_device_get_seat(device) : NULL;
+      if(seat) gdk_seat_ungrab(seat);
     }
   }
   if(w->touch_pending)
@@ -4186,7 +4201,7 @@ static void _widget_button_release(GtkGestureSingle *gesture,
   if(w->type != DT_BAUHAUS_SLIDER) return;
 
   dt_bauhaus_slider_data_t *d = &w->slider;
-  if(gtk_gesture_single_get_current_button(gesture) == GDK_BUTTON_PRIMARY)
+  if(touch || gtk_gesture_single_get_current_button(gesture) == GDK_BUTTON_PRIMARY)
     d->is_dragging = 0;
 }
 
@@ -4205,6 +4220,8 @@ static void _widget_motion(GtkEventControllerMotion *controller,
                            GtkWidget *widget)
 {
   dt_bauhaus_widget_t *w = DT_BAUHAUS_WIDGET(widget);
+  // pointer emulation must not also run the mouse drag during a touch gesture
+  if(w->touch_pending || w->touch_dragging) return;
   dt_bauhaus_slider_data_t *d = &w->slider;
   dt_bauhaus_t *bh = darktable.bauhaus;
 
@@ -4263,6 +4280,31 @@ static void _widget_motion(GtkEventControllerMotion *controller,
   gtk_widget_queue_draw(widget);
 }
 
+static void _widget_touch_reset(GtkWidget *widget)
+{
+  dt_bauhaus_widget_t *w = DT_BAUHAUS_WIDGET(widget);
+  w->touch_pending = w->touch_dragging = FALSE;
+  if(w->type == DT_BAUHAUS_SLIDER) w->slider.is_dragging = 0;
+  dt_bauhaus_widget_release_quad(widget);
+}
+
+static void _widget_touch_cancel(GtkGesture *gesture,
+                                 GdkEventSequence *sequence,
+                                 GtkWidget *widget)
+{
+  _widget_touch_reset(widget);
+}
+
+static void _widget_touch_end(GtkGestureDrag *gesture,
+                              double dx,
+                              double dy,
+                              GtkWidget *widget)
+{
+  // a stopped click recognizer may not deliver released after a drag
+  // leave pending taps for the click recognizer to activate on release
+  if(DT_BAUHAUS_WIDGET(widget)->touch_dragging) _widget_touch_reset(widget);
+}
+
 static void _widget_touch_motion(GtkGestureDrag *gesture,
                                   double dx,
                                   double dy,
@@ -4277,6 +4319,7 @@ static void _widget_touch_motion(GtkGestureDrag *gesture,
     if(w->type != DT_BAUHAUS_SLIDER || fabs(dy) >= fabs(dx)
        || w->touch_x > w->margin.left + w->padding.left + _widget_width(w))
     {
+      _widget_touch_reset(widget);
       gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_DENIED);
       return;
     }
@@ -4335,9 +4378,12 @@ static void dt_bh_init(DtBauhausWidget *w)
   gtk_gesture_single_set_button(gesture, 0);
   g_signal_connect(gesture, "stopped", G_CALLBACK(_widget_button_stopped), w);
 
-  GtkGesture *touch_drag = dt_gui_connect_drag(w, NULL, NULL, _widget_touch_motion, widget);
-  gtk_gesture_single_set_touch_only(GTK_GESTURE_SINGLE(touch_drag), TRUE);
+  GtkGesture *touch_drag = dt_gui_connect_drag(w, NULL, _widget_touch_end, _widget_touch_motion, widget);
+  // Windows may promote finger contacts to button/motion events; the
+  // pending flag limits this drag handler to contacts from a touchscreen
   gtk_gesture_group(GTK_GESTURE(gesture), touch_drag);
+  g_signal_connect(touch_drag, "cancel", G_CALLBACK(_widget_touch_cancel), widget);
+  g_signal_connect(widget, "unmap", G_CALLBACK(_widget_touch_reset), NULL);
 
   dt_gui_connect_motion(w, _widget_motion, _widget_enter, _widget_leave, widget);
 
