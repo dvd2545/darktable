@@ -101,6 +101,9 @@ changes (where available).
 
 ## UI/UX Improvements
 
+- Panel resize handles now support finger drags. Larger collapse controls sit
+  just inside the central workspace instead of at the screen borders.
+
 - Added touchscreen swipe scrolling in the lighttable photo grid,
   filmstrip and dropdown lists. Vertical swipes over processing controls
   can scroll the side panel without changing values; horizontal drags
