@@ -101,6 +101,14 @@ changes (where available).
 
 ## UI/UX Improvements
 
+- Added touchscreen swipe scrolling in the lighttable photo grid,
+  filmstrip and dropdown lists. Vertical swipes over processing controls
+  can scroll the side panel without changing values; horizontal drags
+  adjust sliders. Tapping a dropdown entry selects it on release.
+
+- Added an optional darktable-touch theme with larger controls, roomier
+  lists and wider scrollbars that follow the configured font size and DPI.
+
 - The code has received a large set of changes in preparation of the
   Gtk4 migration.
   - The code for handling popover menus has been changed.
