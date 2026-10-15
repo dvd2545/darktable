@@ -20,6 +20,7 @@
 #include "common/extra_optimizations.h"
 
 #include "dtgtk/thumbnail.h"
+#include "common/gdk_event_utils.h"
 
 #include "bauhaus/bauhaus.h"
 #include "common/collection.h"
@@ -1043,12 +1044,22 @@ static void _event_rating_press_cb(GtkGestureSingle *gesture,
   // claims the click via the gesture
 }
 
+static gboolean _thumbnail_is_release(GtkGestureSingle *gesture)
+{
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
+  // a scrolling ancestor cancels child clicks; that must not apply a rating
+  return event && (dt_gdk_event_get_type(event) == GDK_BUTTON_RELEASE
+                   || dt_gdk_event_get_type(event) == GDK_TOUCH_END);
+}
+
 static void _event_rating_release_cb(GtkGestureSingle *gesture,
                                       gint n_press,
                                       gdouble x,
                                       gdouble y,
                                       dt_thumbnail_t *thumb)
 {
+  if(!_thumbnail_is_release(gesture)) return;
   GtkWidget *widget = dt_gui_get_widget(gesture);
   if(thumb->disable_actions)
     return;
@@ -1088,6 +1099,7 @@ static void _event_grouping_release_cb(GtkGestureSingle *gesture,
                                         gdouble y,
                                         dt_thumbnail_t *thumb)
 {
+  if(!_thumbnail_is_release(gesture)) return;
   GtkWidget *widget = dt_gui_get_widget(gesture);
   if(thumb->disable_actions)
     return;
@@ -1141,6 +1153,7 @@ static void _event_audio_release_cb(GtkGestureSingle *gesture,
                                      gdouble y,
                                      dt_thumbnail_t *thumb)
 {
+  if(!_thumbnail_is_release(gesture)) return;
   GtkWidget *widget = dt_gui_get_widget(gesture);
   if(thumb->disable_actions)
     return;

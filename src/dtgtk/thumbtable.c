@@ -1130,6 +1130,40 @@ static gboolean _event_scroll_compressed(gpointer user_data)
   return FALSE;
 }
 
+static void _touch_scroll_begin(GtkGestureDrag *gesture,
+                                 double x,
+                                 double y,
+                                 dt_thumbtable_t *table)
+{
+  table->touch_scrolling = FALSE;
+  table->touch_x = table->touch_y = 0.0;
+  if(table->mode != DT_THUMBTABLE_MODE_FILEMANAGER
+     && table->mode != DT_THUMBTABLE_MODE_FILMSTRIP)
+    gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_DENIED);
+}
+
+static void _touch_scroll_update(GtkGestureDrag *gesture,
+                                  double dx,
+                                  double dy,
+                                  dt_thumbtable_t *table)
+{
+  double x, y;
+  if(!gtk_gesture_drag_get_start_point(gesture, &x, &y)) return;
+  if(!table->touch_scrolling)
+  {
+    if(!gtk_drag_check_threshold(table->widget, x, y, x + dx, y + dy)) return;
+    table->touch_scrolling = TRUE;
+    // claim only after a swipe, so taps still reach selection and rating buttons
+    gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+  }
+
+  const int mx = lround(dx - table->touch_x);
+  const int my = lround(dy - table->touch_y);
+  table->touch_x += mx;
+  table->touch_y += my;
+  _move(table, mx, my, TRUE);
+}
+
 /* touchpad pinch for the zoomable lighttable, via dt_gui_connect_pinch().
  * The old GTK3-only "event" signal handler forwarded raw GDK_TOUCHPAD_PINCH
  * events; GtkGestureZoom turns the phase field into the begin / update /
@@ -1579,6 +1613,14 @@ static void _event_button_press_cb(GtkGestureSingle *gesture,
   dt_set_backthumb_time(0.0);
 
   const guint button = gtk_gesture_single_get_current_button(gesture);
+  const gboolean touch = gtk_gesture_single_get_current_sequence(gesture) != NULL;
+  if(touch)
+  {
+    const dt_thumbnail_t *thumb = _thumb_get_at_pos(table, x, y);
+    dt_control_set_mouse_over_id(thumb ? thumb->imgid : NO_IMGID);
+    // a finger may be starting a swipe; defer selection until a real release
+    if(n_press != 2 && table->mode != DT_THUMBTABLE_MODE_ZOOM) return;
+  }
   const dt_imgid_t id = dt_control_get_mouse_over_id();
 
   if(button == GDK_BUTTON_PRIMARY && n_press == 2)
@@ -1755,8 +1797,14 @@ static void _event_button_release_cb(GtkGestureSingle *gesture,
    * select/toggle, exactly like the pre-gesture button-release-event
    * handler. */
   const GdkEvent *release_event =
-    gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL);
-  if(!release_event || dt_gdk_event_get_type(release_event) != GDK_BUTTON_RELEASE)
+    gtk_gesture_get_last_event(GTK_GESTURE(gesture),
+                                gtk_gesture_single_get_current_sequence(gesture));
+  if(!release_event
+     || (dt_gdk_event_get_type(release_event) != GDK_BUTTON_RELEASE
+         && dt_gdk_event_get_type(release_event) != GDK_TOUCH_END))
+    return;
+
+  if(dt_gdk_event_get_type(release_event) == GDK_TOUCH_END && table->touch_scrolling)
     return;
 
   dt_set_backthumb_time(0.0);
@@ -2860,6 +2908,11 @@ dt_thumbtable_t *dt_thumbtable_new()
    * on any part of a thumbnail, including its letterboxing padding
    * (see #21826). */
   gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click_gesture), GTK_PHASE_CAPTURE);
+
+  GtkGesture *touch_scroll = dt_gui_connect_drag(table->widget, _touch_scroll_begin,
+                                                 NULL, _touch_scroll_update, table);
+  gtk_gesture_single_set_touch_only(GTK_GESTURE_SINGLE(touch_scroll), TRUE);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(touch_scroll), GTK_PHASE_CAPTURE);
 
   // we register globals signals
   DT_CONTROL_SIGNAL_CONNECT(DT_SIGNAL_COLLECTION_CHANGED,

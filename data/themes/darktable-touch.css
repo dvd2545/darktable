@@ -1,0 +1,92 @@
+/*
+    This file is part of darktable,
+    Copyright (C) 2026 darktable developers.
+
+    darktable is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    darktable is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with darktable.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+@import url("darktable-elegant-darker.css");
+
+/* em units follow the configured font size and display dpi */
+button,
+.text-button,
+.image-button,
+.dt_module_btn,
+#modules-tabs .dt_module_btn,
+#guides-line .dt_module_btn,
+.dt_plugin_ui #blending-tabs .dt_module_btn
+{
+  min-width: 2.25em;
+  min-height: 2.25em;
+  padding: 0.25em;
+}
+
+entry,
+combobox button,
+checkbutton,
+radiobutton,
+menuitem,
+popover.menu modelbutton,
+notebook tab
+{
+  min-height: 2.25em;
+  padding: 0.25em 0.5em;
+}
+
+checkbutton check,
+radiobutton radio
+{
+  min-width: 1.25em;
+  min-height: 1.25em;
+  margin-right: 0.5em;
+}
+
+/* custom controls add padding around their shared row metric */
+.dt_bauhaus,
+.dt_plugin_ui #bauhaus-slider,
+.dt_plugin_ui #bauhaus-combobox
+{
+  padding: 0.35em 0.25em;
+  margin: 0.25em 0;
+}
+
+/* the shared custom row metric also sizes dropdown entries and icon targets */
+.dt_bauhaus
+{
+  min-height: 2.5em;
+}
+
+#left #module-header,
+#right #module-header,
+#right #basics-header-box
+{
+  padding: 0.6em;
+}
+
+treeview.view
+{
+  -GtkTreeView-vertical-separator: 16;
+}
+
+scrollbar.vertical slider
+{
+  min-width: 1.25em;
+  min-height: 3em;
+}
+
+scrollbar.horizontal slider
+{
+  min-width: 3em;
+  min-height: 1.25em;
+}

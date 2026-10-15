@@ -103,6 +103,8 @@ typedef struct dt_bauhaus_popup_t
   GdkRectangle position;
   int offset;
   int offcut;
+  gboolean touch_scrolling;
+  double touch_y;
   float oldpos;   // slider value before entering finetune mode (normalized)
 } dt_bauhaus_popup_t;
 

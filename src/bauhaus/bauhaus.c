@@ -116,6 +116,10 @@ struct _DtBauhausWidget
   // section, short
   gchar *section;
   gboolean show_extended_label;
+  gboolean touch_pending;
+  gboolean touch_dragging;
+  double touch_x, touch_y;
+  float touch_value;
   // callback function to draw the quad icon
   dt_bauhaus_quad_paint_f quad_paint;
   // tooltip to show when mouse is over the quad section
@@ -749,6 +753,27 @@ static void _popup_button_release_cb(GtkGestureSingle *gesture,
                                        gdouble y,
                                        gpointer user_data)
 {
+  dt_bauhaus_t *bh = darktable.bauhaus;
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
+  if(!event || (dt_gdk_event_get_type(event) != GDK_BUTTON_RELEASE
+                && dt_gdk_event_get_type(event) != GDK_TOUCH_END)) return;
+  if(dt_gdk_event_get_type(event) == GDK_TOUCH_END
+     && bh->current && bh->current->type == DT_BAUHAUS_COMBOBOX)
+  {
+    if(bh->popup.touch_scrolling) return;
+    dt_bauhaus_widget_t *w = bh->current;
+    const int active = floorf((y + bh->popup.offcut - bh->popup.padding.top - w->top_gap)
+                               / bh->line_height);
+    if(active >= 0 && active < w->combobox.entries->len
+       && _combobox_entry(&w->combobox, active)->sensitive)
+    {
+      bh->change_active = TRUE;
+      _combobox_set(w, active, w->combobox.mute_scrolling);
+      _popup_hide();
+    }
+    return;
+  }
   if(darktable.bauhaus->change_active && gtk_gesture_single_get_current_button(gesture) != GDK_BUTTON_MIDDLE)
     _popup_hide();
 }
@@ -774,7 +799,8 @@ static void _popup_button_press_cb(GtkGestureSingle *gesture,
 #if GTK_CHECK_VERSION(4, 0, 0)
   /* GTK4: no foreign clicks to reject (see above). */
 #else
-  const GdkEvent *cur_event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL);
+  const GdkEvent *cur_event = gtk_gesture_get_last_event
+    (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
   if(cur_event
      && dt_gdk_event_get_window(cur_event) != gtk_widget_get_window(dt_gui_get_widget(gesture)))
   {
@@ -783,6 +809,9 @@ static void _popup_button_press_cb(GtkGestureSingle *gesture,
   }
 #endif
 
+  if(gtk_gesture_single_get_current_sequence(gesture) && w->type == DT_BAUHAUS_COMBOBOX)
+    return;
+
   if(button == GDK_BUTTON_PRIMARY)
   {
     // only accept left mouse click
@@ -790,7 +819,8 @@ static void _popup_button_press_cb(GtkGestureSingle *gesture,
                                GTK_STATE_FLAG_FOCUSED, FALSE);
 
     if(w->type == DT_BAUHAUS_COMBOBOX
-       && !dt_gui_long_click(gdk_event_get_time(gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL)), bh->opentime))
+       && !dt_gui_long_click(gdk_event_get_time(gtk_gesture_get_last_event
+              (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture))), bh->opentime))
     {
       // counts as double click, reset:
       const GdkModifierType state =
@@ -803,7 +833,8 @@ static void _popup_button_press_cb(GtkGestureSingle *gesture,
 
     bh->change_active = TRUE;
     GtkWidget *w_current = dt_gui_get_widget(gesture);
-    const GdkEvent *current_event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL);
+    const GdkEvent *current_event = gtk_gesture_get_last_event
+      (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
     if(current_event)
     {
       GdkModifierType motion_state = dt_gdk_event_get_state(current_event);
@@ -818,6 +849,71 @@ static void _popup_button_press_cb(GtkGestureSingle *gesture,
     _slider_zoom_range(w, 0);
   else
     _popup_reject();
+}
+
+static void _popup_touch_begin(GtkGestureDrag *gesture,
+                                double x,
+                                double y,
+                                gpointer user_data)
+{
+  dt_bauhaus_popup_t *pop = &darktable.bauhaus->popup;
+  pop->touch_scrolling = FALSE;
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture)));
+  if(event) pop->touch_y = dt_gdk_event_get_root_y(event);
+}
+
+static void _popup_touch_update(GtkGestureDrag *gesture,
+                                 double dx,
+                                 double dy,
+                                 gpointer user_data)
+{
+  dt_bauhaus_t *bh = darktable.bauhaus;
+  dt_bauhaus_popup_t *pop = &bh->popup;
+  if(!bh->current) return;
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture)));
+  if(!event) return;
+  if(bh->current->type == DT_BAUHAUS_SLIDER)
+  {
+    _window_motion_handle(pop->area, dt_gdk_event_get_root_x(event),
+                            dt_gdk_event_get_root_y(event), GDK_BUTTON1_MASK);
+    return;
+  }
+  double x, y;
+  if(!gtk_gesture_drag_get_start_point(gesture, &x, &y)) return;
+  if(!pop->touch_scrolling)
+  {
+    if(!gtk_drag_check_threshold(pop->area, x, y, x + dx, y + dy)) return;
+    pop->touch_scrolling = TRUE;
+    gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+  }
+
+  GtkAllocation allocation;
+  gtk_widget_get_allocation(pop->area, &allocation);
+  const double root_y = dt_gdk_event_get_root_y(event);
+  const int delta = lround(pop->touch_y - root_y);
+  pop->touch_y = root_y;
+  // use screen coordinates because repositioning the popup changes local ones
+  int minimum = 0;
+  int maximum = MAX(0, pop->position.height - allocation.height);
+  GdkWindow *window = gtk_widget_get_window(pop->area);
+  GdkMonitor *monitor = gdk_display_get_monitor_at_window(gtk_widget_get_display(pop->area), window);
+  if(monitor)
+  {
+    GdkRectangle workarea;
+    int origin_x, origin_y;
+    gdk_monitor_get_workarea(monitor, &workarea);
+    gdk_window_get_origin(window, &origin_x, &origin_y);
+    const int top = MAX(origin_y, workarea.y);
+    const int bottom = MIN(origin_y + allocation.height, workarea.y + workarea.height);
+    if(pop->position.height <= bottom - top) return;
+    minimum = origin_y - top;
+    maximum = MAX(minimum, pop->position.height + origin_y - bottom);
+  }
+  const int offset = CLAMP(pop->offcut + delta, minimum, maximum) - pop->offcut;
+  if(offset) _window_position(offset);
+  gtk_widget_queue_draw(pop->area);
 }
 
 static void _window_show(GtkWidget *w, gpointer user_data)
@@ -964,7 +1060,10 @@ void dt_bauhaus_load_theme()
   cairo_destroy(cr);
   cairo_surface_destroy(cst);
 
-  bh->line_height = pango_height / PANGO_SCALE;
+  gint minimum_line_height = 0;
+  gtk_style_context_get(ctx, GTK_STATE_FLAG_NORMAL, "min-height", &minimum_line_height, NULL);
+  // custom popup rows use this same metric for drawing and hit testing
+  bh->line_height = MAX(pango_height / PANGO_SCALE, minimum_line_height);
 
   const char *shape = dt_conf_get_string_const("bauhaus/marker_shape");
   bh->marker_shape = !g_strcmp0(shape, "circle")    ? DT_BAUHAUS_MARKER_CIRCLE
@@ -1081,7 +1180,12 @@ void dt_bauhaus_init()
 #endif
   dt_gui_connect_motion(area, NULL, NULL, _popup_leave_cb, NULL);
   dt_gui_connect_key(area, _popup_key_press, NULL);
-  dt_gui_connect_click_all(area, _popup_button_press_cb, _popup_button_release_cb, NULL);
+  GtkGestureSingle *popup_click =
+    dt_gui_connect_click_all(area, _popup_button_press_cb, _popup_button_release_cb, NULL);
+  GtkGesture *popup_touch =
+    dt_gui_connect_drag(area, _popup_touch_begin, NULL, _popup_touch_update, NULL);
+  gtk_gesture_single_set_touch_only(GTK_GESTURE_SINGLE(popup_touch), TRUE);
+  gtk_gesture_group(GTK_GESTURE(popup_click), popup_touch);
   dt_gui_connect_scroll(area, GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES
                                   | GTK_EVENT_CONTROLLER_SCROLL_DISCRETE,
                         _popup_scroll_cb, NULL);
@@ -3972,6 +4076,16 @@ static void _widget_button_press(GtkGestureSingle *gesture,
 {
   dt_bauhaus_widget_t *w = DT_BAUHAUS_WIDGET(widget);
   dt_bauhaus_t *bh = darktable.bauhaus;
+  if(gtk_gesture_single_get_current_sequence(gesture) && !w->touch_dragging)
+  {
+    // leave the sequence unclaimed until a tap or a horizontal slider drag
+    // is confirmed, so the enclosing list can recognize vertical swipes
+    w->touch_pending = TRUE;
+    w->touch_x = x;
+    w->touch_y = y;
+    if(w->type == DT_BAUHAUS_SLIDER) w->touch_value = w->slider.pos;
+    return;
+  }
   gboolean passthrough_from_histogram =
     dt_gui_get_widget(gesture) != widget;
 
@@ -4010,7 +4124,8 @@ static void _widget_button_press(GtkGestureSingle *gesture,
   }
   else if(button == GDK_BUTTON_SECONDARY || w->type == DT_BAUHAUS_COMBOBOX)
   {
-    const GdkEvent *const event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL);
+    const GdkEvent *const event = gtk_gesture_get_last_event
+      (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
     if(event) bh->opentime = gdk_event_get_time((GdkEvent *)event);
     bh->mouse_x = x;
     bh->mouse_y = y;
@@ -4045,6 +4160,26 @@ static void _widget_button_release(GtkGestureSingle *gesture,
                                    GtkWidget *widget)
 {
   dt_bauhaus_widget_t *w = DT_BAUHAUS_WIDGET(widget);
+  if(w->touch_pending || w->touch_dragging
+     || gtk_gesture_single_get_current_sequence(gesture))
+  {
+    const GdkEvent *event = gtk_gesture_get_last_event
+      (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
+    if(!event || dt_gdk_event_get_type(event) != GDK_TOUCH_END)
+    {
+      w->touch_pending = w->touch_dragging = FALSE;
+      if(w->type == DT_BAUHAUS_SLIDER) w->slider.is_dragging = 0;
+      dt_bauhaus_widget_release_quad(widget);
+      return;
+    }
+  }
+  if(w->touch_pending)
+  {
+    w->touch_pending = FALSE;
+    w->touch_dragging = TRUE;
+    _widget_button_press(gesture, n_press, w->touch_x, w->touch_y, widget);
+  }
+  w->touch_dragging = FALSE;
   dt_bauhaus_widget_release_quad(widget);
 
   dt_gui_claim(gesture);
@@ -4128,6 +4263,33 @@ static void _widget_motion(GtkEventControllerMotion *controller,
   gtk_widget_queue_draw(widget);
 }
 
+static void _widget_touch_motion(GtkGestureDrag *gesture,
+                                  double dx,
+                                  double dy,
+                                  GtkWidget *widget)
+{
+  dt_bauhaus_widget_t *w = DT_BAUHAUS_WIDGET(widget);
+  if(!w->touch_pending && !w->touch_dragging) return;
+  if(w->touch_pending)
+  {
+    if(!gtk_drag_check_threshold(widget, w->touch_x, w->touch_y,
+                                 w->touch_x + dx, w->touch_y + dy)) return;
+    if(w->type != DT_BAUHAUS_SLIDER || fabs(dy) >= fabs(dx)
+       || w->touch_x > w->margin.left + w->padding.left + _widget_width(w))
+    {
+      gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_DENIED);
+      return;
+    }
+    w->touch_pending = FALSE;
+    w->touch_dragging = TRUE;
+    _request_focus(w);
+    gtk_widget_grab_focus(widget);
+    w->slider.is_dragging = -1;
+    gtk_gesture_set_state(GTK_GESTURE(gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+  }
+  _slider_set_normalized(w, w->touch_value + dx / _widget_width(w));
+}
+
 static void dt_bh_class_init(DtBauhausWidgetClass *class)
 {
   dt_bauhaus_t *bh = darktable.bauhaus;
@@ -4172,6 +4334,10 @@ static void dt_bh_init(DtBauhausWidget *w)
     dt_gui_connect_click(w, _widget_button_press, _widget_button_release, widget);
   gtk_gesture_single_set_button(gesture, 0);
   g_signal_connect(gesture, "stopped", G_CALLBACK(_widget_button_stopped), w);
+
+  GtkGesture *touch_drag = dt_gui_connect_drag(w, NULL, NULL, _widget_touch_motion, widget);
+  gtk_gesture_single_set_touch_only(GTK_GESTURE_SINGLE(touch_drag), TRUE);
+  gtk_gesture_group(GTK_GESTURE(gesture), touch_drag);
 
   dt_gui_connect_motion(w, _widget_motion, _widget_enter, _widget_leave, widget);
 
