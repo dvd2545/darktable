@@ -101,6 +101,9 @@ changes (where available).
 
 ## UI/UX Improvements
 
+- Center toolbars now scroll horizontally with touch when side panels leave
+  too little space, instead of forcing the window beyond the screen width.
+
 - Panel resize handles now support finger drags. Larger collapse controls sit
   just inside the central workspace instead of at the screen borders.
 
