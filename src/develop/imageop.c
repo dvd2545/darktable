@@ -3043,9 +3043,8 @@ static GtkGestureSingle *_header_connect_gestures(GtkWidget *header)
   GtkGesture *hold = gtk_gesture_long_press_new(header);
   dt_gui_add_controller(header, hold);
   gtk_gesture_single_set_touch_only(GTK_GESTURE_SINGLE(hold), TRUE);
-  gtk_gesture_group(GTK_GESTURE(click), drag);
-  gtk_gesture_group(GTK_GESTURE(click), hold);
-  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
+  // keep taps on the original bubble path; only hold and drag share capture state
+  gtk_gesture_group(drag, hold);
   gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(drag), GTK_PHASE_CAPTURE);
   gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(hold), GTK_PHASE_CAPTURE);
   g_signal_connect(hold, "pressed", G_CALLBACK(_header_gesture_hold), state);
@@ -3061,9 +3060,9 @@ static void _iop_plugin_header_released(GtkGestureSingle *gesture,
                                         gdouble y,
                                         dt_iop_module_t *module)
 {
-  if(n_press >= 2) return;
   GtkWidget *const header = dt_gui_get_widget(gesture);
   dt_iop_header_gesture_t *state = g_object_get_data(G_OBJECT(header), "module-header-gesture");
+  if(n_press >= 2 && (!state || !state->touch)) return;
   if(state && (state->moved || state->reordering)) return;
 
   // ignore clicks on buttons inside the header (presets, reset, enable, multiinstance)
