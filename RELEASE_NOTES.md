@@ -120,6 +120,9 @@ changes (where available).
 - Histogram exposure and black-point adjustments now support finger drags
   without requiring a mouse hover first.
 
+- Touch slider drags stop when focus moves to another control, and release
+  their pointer grab when the gesture ends or is canceled.
+
 - Added an optional darktable-touch theme with larger controls and roomier
   lists that follow the configured font size and DPI.
 
