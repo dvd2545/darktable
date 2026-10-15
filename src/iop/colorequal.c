@@ -3573,6 +3573,16 @@ static void _area_button_press_callback(GtkGestureSingle *gesture,
 {
   dt_iop_colorequal_gui_data_t *g = self->gui_data;
   const guint button = gtk_gesture_single_get_current_button(gesture);
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
+  GdkDevice *source = event ? gdk_event_get_source_device(event) : NULL;
+  const gboolean touch = gtk_gesture_single_get_current_sequence(gesture)
+    || (source && gdk_device_get_source(source) == GDK_SOURCE_TOUCHSCREEN);
+
+  // a finger has no preceding hover to select the node under the contact
+  if(!g->dragging) _area_motion_notify_callback(NULL, x, y, self);
+  if(touch)
+    g->on_node = fabsf(g->points[g->selected][1] - y) < DT_PIXEL_APPLY_DPI(24);
 
   if(button == GDK_BUTTON_MIDDLE
      || (button == GDK_BUTTON_PRIMARY // Ctrl+Click alias for macOS
@@ -3586,7 +3596,23 @@ static void _area_button_press_callback(GtkGestureSingle *gesture,
     if(n_press >= 2)
       _area_reset_nodes(g);
     else
-      g->dragging = TRUE;
+    {
+      g->dragging = !touch || g->on_node;
+      if(g->on_node)
+      {
+        if(touch)
+        {
+          GtkWidget *scroll = gtk_widget_get_ancestor(GTK_WIDGET(g->area), GTK_TYPE_SCROLLED_WINDOW);
+          if(scroll && gtk_scrolled_window_get_kinetic_scrolling(GTK_SCROLLED_WINDOW(scroll)))
+          {
+            g_object_set_data_full(G_OBJECT(g->area), "node-drag-scroller", g_object_ref(scroll), g_object_unref);
+            gtk_scrolled_window_set_kinetic_scrolling(GTK_SCROLLED_WINDOW(scroll), FALSE);
+          }
+        }
+        gtk_widget_grab_focus(GTK_WIDGET(g->area));
+        dt_gui_claim(gesture);
+      }
+    }
   }
   else
   {
@@ -3620,6 +3646,45 @@ static void _area_size_callback(GtkWidget *widget,
 {
   dt_iop_colorequal_gui_data_t *g = self->gui_data;
   g->gradients_cached = FALSE;
+}
+
+static void _area_touch_motion(GtkGesture *gesture, double x, double y, gpointer user_data)
+{
+  dt_iop_module_t *self = user_data;
+  if(((dt_iop_colorequal_gui_data_t *)self->gui_data)->dragging)
+    _area_motion_notify_callback(NULL, x, y, self);
+}
+
+static void _area_drag_end(GtkGesture *gesture, GdkEventSequence *sequence, dt_iop_module_t *self)
+{
+  dt_iop_colorequal_gui_data_t *g = self->gui_data;
+  g->dragging = FALSE;
+  GtkWidget *scroll = g_object_steal_data(G_OBJECT(g->area), "node-drag-scroller");
+  if(scroll)
+  {
+    gtk_scrolled_window_set_kinetic_scrolling(GTK_SCROLLED_WINDOW(scroll), TRUE);
+    g_object_unref(scroll);
+  }
+}
+
+static void _area_unmap(GtkWidget *widget, dt_iop_module_t *self)
+{
+  _area_drag_end(NULL, NULL, self);
+}
+
+static void _area_connect_touch(dt_iop_module_t *self)
+{
+  dt_iop_colorequal_gui_data_t *g = self->gui_data;
+  gtk_widget_add_events(GTK_WIDGET(g->area), GDK_TOUCH_MASK);
+  GtkGestureSingle *click = dt_gui_connect_click_all
+    (g->area, _area_button_press_callback, _area_button_release_callback, self);
+  GtkGesture *drag = dt_gui_connect_touch_motion(GTK_WIDGET(g->area), _area_touch_motion, self);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_CAPTURE);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(drag), GTK_PHASE_CAPTURE);
+  gtk_gesture_group(GTK_GESTURE(click), drag);
+  g_signal_connect(drag, "end", G_CALLBACK(_area_drag_end), self);
+  g_signal_connect(drag, "cancel", G_CALLBACK(_area_drag_end), self);
+  g_signal_connect(g->area, "unmap", G_CALLBACK(_area_unmap), self);
 }
 
 void gui_changed(dt_iop_module_t *self, GtkWidget *w, void *previous)
@@ -3811,7 +3876,7 @@ void gui_init(dt_iop_module_t *self)
                         GDK_POINTER_MOTION_MASK | GDK_BUTTON_PRESS_MASK
                         | GDK_BUTTON_RELEASE_MASK
                         | darktable.gui->scroll_mask);
-  dt_gui_connect_click_all(g->area, _area_button_press_callback, _area_button_release_callback, self);
+  _area_connect_touch(self);
   dt_gui_connect_motion(g->area, _area_motion_notify_callback, NULL, _area_leave_callback, self);
   dt_gui_connect_scroll(g->area, GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES
                                         | GTK_EVENT_CONTROLLER_SCROLL_DISCRETE,

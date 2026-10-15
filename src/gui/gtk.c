@@ -3372,6 +3372,8 @@ static GtkWidget *_ui_init_panel_container_center(GtkWidget *container,
   GtkAdjustment *vadj = gtk_adjustment_new(0, 0, 100, 1, 10, 10);
   GtkWidget *sw = gtk_scrolled_window_new(NULL, GTK_ADJUSTMENT(vadj));
   gtk_widget_set_can_focus(sw, TRUE);
+  // let graph controls claim touches on their nodes before the panel starts panning
+  gtk_scrolled_window_set_capture_button_press(GTK_SCROLLED_WINDOW(sw), FALSE);
   gtk_scrolled_window_set_placement(GTK_SCROLLED_WINDOW(sw),
                                     left ? GTK_CORNER_TOP_LEFT : GTK_CORNER_TOP_RIGHT);
   gtk_box_pack_start(GTK_BOX(container), sw, TRUE, TRUE, 0);

@@ -10,6 +10,14 @@ if(WIN32)
     _copy_required_library(test_bauhaus_touch lib_darktable)
 endif(WIN32)
 
+add_cmocka_test(test_colorequal_touch
+    SOURCES test_colorequal_touch.c
+    LINK_LIBRARIES lib_darktable cmocka)
+set_tests_properties(test_colorequal_touch PROPERTIES SKIP_RETURN_CODE 77)
+if(WIN32)
+    _copy_required_library(test_colorequal_touch lib_darktable)
+endif(WIN32)
+
 add_cmocka_test(test_panel_touch
     SOURCES test_panel_touch.c
     LINK_LIBRARIES lib_darktable cmocka)
