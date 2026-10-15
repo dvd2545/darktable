@@ -344,6 +344,13 @@ undershoot,
   min-width: 1.4em;
 }
 
+#outer-border.dt_panel_toggle
+{
+  background-color: alpha(@button_bg, 0.9);
+  border: 1px solid @button_border;
+  border-radius: 0.3em;
+}
+
 /* Allow to resize all windows */
 decoration
 {

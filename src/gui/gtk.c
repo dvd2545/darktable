@@ -492,12 +492,35 @@ static void _toggle_bottom_all_accel_callback(dt_action_t *action)
   dt_ui_panel_show(darktable.gui->ui, DT_UI_PANEL_CENTER_BOTTOM, !v, TRUE);
 }
 
+static void _panel_release_touch_pointer(GtkGestureSingle *gesture)
+{
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
+  GdkDevice *source = event ? gdk_event_get_source_device(event) : NULL;
+  if(event && dt_gdk_event_get_type(event) == GDK_BUTTON_RELEASE
+     && source && gdk_device_get_source(source) == GDK_SOURCE_TOUCHSCREEN)
+  {
+    GdkDevice *device = gdk_event_get_device(event);
+    GdkSeat *seat = device ? gdk_device_get_seat(device) : NULL;
+    if(seat) gdk_seat_ungrab(seat);
+  }
+}
+
+static void _borders_button_released(GtkGestureSingle *gesture,
+                                     gint n_press, gdouble x, gdouble y,
+                                     gpointer user_data)
+{
+  _panel_release_touch_pointer(gesture);
+}
+
 static void _borders_button_pressed(GtkGestureSingle *gesture,
                                      gint n_press,
                                      gdouble x,
                                      gdouble y,
                                      gpointer user_data)
 {
+  if(gtk_gesture_single_get_current_button(gesture) != GDK_BUTTON_PRIMARY) return;
+  dt_gui_claim(gesture);
   _panel_toggle(GPOINTER_TO_INT(user_data), darktable.gui->ui);
 }
 
@@ -757,65 +780,67 @@ static gboolean _draw_borders(GtkWidget *widget,
   gtk_render_background(context, cr, 0, 0, width, height);
   gtk_style_context_get_color(context, gtk_widget_get_state_flags(widget), &color);
 
-  // draw gui arrows.
+  // keep the arrow small inside the larger touch target
   gdk_cairo_set_source_rgba(cr, &color);
+  const float arrow = DT_PIXEL_APPLY_DPI(6);
+  cairo_translate(cr, width / 2, height / 2);
 
   switch(which)
   {
     case DT_UI_BORDER_LEFT:
       if(dt_ui_panel_visible(darktable.gui->ui, DT_UI_PANEL_LEFT))
       {
-        cairo_move_to(cr, width, height / 2 - width);
-        cairo_rel_line_to(cr, 0.0, 2 * width);
-        cairo_rel_line_to(cr, -width, -width);
+        cairo_move_to(cr, arrow / 2, -arrow);
+        cairo_rel_line_to(cr, 0, 2 * arrow);
+        cairo_rel_line_to(cr, -arrow, -arrow);
       }
       else
       {
-        cairo_move_to(cr, 0.0, height / 2 - width);
-        cairo_rel_line_to(cr, 0.0, 2 * width);
-        cairo_rel_line_to(cr, width, -width);
+        cairo_move_to(cr, -arrow / 2, -arrow);
+        cairo_rel_line_to(cr, 0, 2 * arrow);
+        cairo_rel_line_to(cr, arrow, -arrow);
       }
       break;
     case DT_UI_BORDER_RIGHT:
       if(dt_ui_panel_visible(darktable.gui->ui, DT_UI_PANEL_RIGHT))
       {
-        cairo_move_to(cr, 0.0, height / 2 - width);
-        cairo_rel_line_to(cr, 0.0, 2 * width);
-        cairo_rel_line_to(cr, width, -width);
+        cairo_move_to(cr, -arrow / 2, -arrow);
+        cairo_rel_line_to(cr, 0, 2 * arrow);
+        cairo_rel_line_to(cr, arrow, -arrow);
       }
       else
       {
-        cairo_move_to(cr, width, height / 2 - width);
-        cairo_rel_line_to(cr, 0.0, 2 * width);
-        cairo_rel_line_to(cr, -width, -width);
+        cairo_move_to(cr, arrow / 2, -arrow);
+        cairo_rel_line_to(cr, 0, 2 * arrow);
+        cairo_rel_line_to(cr, -arrow, -arrow);
       }
       break;
     case DT_UI_BORDER_TOP:
       if(dt_ui_panel_visible(darktable.gui->ui, DT_UI_PANEL_TOP))
       {
-        cairo_move_to(cr, width / 2 - height, height);
-        cairo_rel_line_to(cr, 2 * height, 0.0);
-        cairo_rel_line_to(cr, -height, -height);
+        cairo_move_to(cr, -arrow, arrow / 2);
+        cairo_rel_line_to(cr, 2 * arrow, 0);
+        cairo_rel_line_to(cr, -arrow, -arrow);
       }
       else
       {
-        cairo_move_to(cr, width / 2 - height, 0.0);
-        cairo_rel_line_to(cr, 2 * height, 0.0);
-        cairo_rel_line_to(cr, -height, height);
+        cairo_move_to(cr, -arrow, -arrow / 2);
+        cairo_rel_line_to(cr, 2 * arrow, 0);
+        cairo_rel_line_to(cr, -arrow, arrow);
       }
       break;
     default: // bottom
       if(dt_ui_panel_visible(darktable.gui->ui, DT_UI_PANEL_BOTTOM))
       {
-        cairo_move_to(cr, width / 2 - height, 0.0);
-        cairo_rel_line_to(cr, 2 * height, 0.0);
-        cairo_rel_line_to(cr, -height, height);
+        cairo_move_to(cr, -arrow, -arrow / 2);
+        cairo_rel_line_to(cr, 2 * arrow, 0);
+        cairo_rel_line_to(cr, -arrow, arrow);
       }
       else
       {
-        cairo_move_to(cr, width / 2 - height, height);
-        cairo_rel_line_to(cr, 2 * height, 0.0);
-        cairo_rel_line_to(cr, -height, -height);
+        cairo_move_to(cr, -arrow, arrow / 2);
+        cairo_rel_line_to(cr, 2 * arrow, 0);
+        cairo_rel_line_to(cr, -arrow, -arrow);
       }
       break;
   }
@@ -2347,7 +2372,8 @@ static GtkWidget *_init_outer_border(const gint width,
                         | darktable.gui->scroll_mask);
   g_signal_connect(widget, "draw",
                    G_CALLBACK(_draw_borders), GINT_TO_POINTER(which));
-  dt_gui_connect_click(widget, _borders_button_pressed, NULL, GINT_TO_POINTER(which));
+  dt_gui_connect_click(widget, _borders_button_pressed, _borders_button_released,
+                        GINT_TO_POINTER(which));
   gtk_widget_set_name(GTK_WIDGET(widget), "outer-border");
   gtk_widget_show(widget);
 
@@ -2410,18 +2436,8 @@ static void _init_widgets(dt_gui_gtk_t *gui)
 
   container = widget;
 
-  // Initializing the top border
-  gui->widgets.top_border = _init_outer_border(-1, DT_PIXEL_APPLY_DPI(10),
-                                               DT_UI_BORDER_TOP);
-  gtk_box_pack_start(GTK_BOX(container), gui->widgets.top_border, FALSE, TRUE, 0);
-
   // Initializing the main table
   _init_main_table(container);
-
-  // Initializing the bottom border
-  gui->widgets.bottom_border = _init_outer_border(-1, DT_PIXEL_APPLY_DPI(10),
-                                                  DT_UI_BORDER_BOTTOM);
-  gtk_box_pack_start(GTK_BOX(container), gui->widgets.bottom_border, FALSE, TRUE, 0);
 
   dt_gui_apply_theme();
 }
@@ -2437,16 +2453,6 @@ static void _init_main_table(GtkWidget *container)
   gtk_box_pack_start(GTK_BOX(container), widget, TRUE, TRUE, 0);
 
   container = widget;
-
-  // Adding the left border
-  darktable.gui->widgets.left_border = _init_outer_border(DT_PIXEL_APPLY_DPI(10), -1,
-                                                          DT_UI_BORDER_LEFT);
-  gtk_grid_attach(GTK_GRID(container), darktable.gui->widgets.left_border, 0, 0, 1, 2);
-
-  // Adding the right border
-  darktable.gui->widgets.right_border = _init_outer_border(DT_PIXEL_APPLY_DPI(10), -1,
-                                                           DT_UI_BORDER_RIGHT);;
-  gtk_grid_attach(GTK_GRID(container), darktable.gui->widgets.right_border, 4, 0, 1, 2);
 
   /* initialize the top container */
   _ui_init_panel_top(darktable.gui->ui, container);
@@ -2484,6 +2490,31 @@ static void _init_main_table(GtkWidget *container)
   gtk_grid_attach(GTK_GRID(centergrid), ocda, 0, 0, 1, 1);
   darktable.gui->ui->center = cda;
   darktable.gui->ui->center_base = ocda;
+
+  // keep collapse controls inside the workspace, including when panels are hidden
+  GtkWidget **toggles[] = { &darktable.gui->widgets.left_border,
+                           &darktable.gui->widgets.right_border,
+                           &darktable.gui->widgets.top_border,
+                           &darktable.gui->widgets.bottom_border };
+  const dt_ui_border_t borders[] = { DT_UI_BORDER_LEFT, DT_UI_BORDER_RIGHT,
+                                     DT_UI_BORDER_TOP, DT_UI_BORDER_BOTTOM };
+  const GtkAlign horizontal[] = { GTK_ALIGN_START, GTK_ALIGN_END,
+                                   GTK_ALIGN_CENTER, GTK_ALIGN_CENTER };
+  const GtkAlign vertical[] = { GTK_ALIGN_CENTER, GTK_ALIGN_CENTER,
+                                 GTK_ALIGN_START, GTK_ALIGN_END };
+  for(int i = 0; i < 4; i++)
+  {
+    GtkWidget *toggle = *toggles[i] =
+      _init_outer_border(DT_PIXEL_APPLY_DPI(32), DT_PIXEL_APPLY_DPI(32), borders[i]);
+    gtk_widget_set_halign(toggle, horizontal[i]);
+    gtk_widget_set_valign(toggle, vertical[i]);
+    gtk_widget_set_margin_start(toggle, DT_PIXEL_APPLY_DPI(8));
+    gtk_widget_set_margin_end(toggle, DT_PIXEL_APPLY_DPI(8));
+    gtk_widget_set_margin_top(toggle, DT_PIXEL_APPLY_DPI(8));
+    gtk_widget_set_margin_bottom(toggle, DT_PIXEL_APPLY_DPI(8));
+    dt_gui_add_class(toggle, "dt_panel_toggle");
+    gtk_overlay_add_overlay(GTK_OVERLAY(ocda), toggle);
+  }
 
   /* initialize the thumb panel */
   darktable.gui->ui->thumbtable = dt_thumbtable_new();
@@ -2808,10 +2839,6 @@ static void _handle_panel_widths(const dt_ui_panel_t p)
   // calculate total used width
   int used_w = 0;
   used_w += gtk_widget_get_allocated_width(darktable.gui->ui->panels[other_panel]);
-
-  // width of left and right border
-  used_w += gtk_widget_get_allocated_width(darktable.gui->widgets.left_border);
-  used_w += gtk_widget_get_allocated_width(darktable.gui->widgets.right_border);
 
   // calculate width of center column
   const int center_col_w = app_window_width - used_w;
@@ -3335,6 +3362,7 @@ static GtkWidget *_ui_init_panel_container_bottom(GtkWidget *container)
 
 static int panel_drag_start_size = 0;
 static gdouble panel_drag_start_x = 0.0;
+static gdouble panel_drag_start_y = 0.0;
 
 static void _panel_handle_button_pressed(GtkGestureSingle *gesture,
                                           gint n_press,
@@ -3361,10 +3389,12 @@ static void _panel_handle_button_pressed(GtkGestureSingle *gesture,
   }
 
   {
-    const GdkEvent *event = gtk_gesture_get_last_event(GTK_GESTURE(gesture), NULL);
+    const GdkEvent *event = gtk_gesture_get_last_event
+      (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(gesture));
     gdouble root_x = 0, root_y = 0;
     if(event) dt_gui_get_event_coords(event, &root_x, &root_y);
     panel_drag_start_x = root_x;
+    panel_drag_start_y = root_y;
   }
 
   if(strcmp(gtk_widget_get_name(handle), "panel-handle-bottom") == 0)
@@ -3380,6 +3410,24 @@ static void _panel_handle_button_released(GtkGestureSingle *gesture,
                                           gdouble x,
                                           gdouble y,
                                           gpointer user_data)
+{
+  _panel_release_touch_pointer(gesture);
+  darktable.gui->widgets.panel_handle_dragging = FALSE;
+}
+
+static void _panel_handle_unmap(GtkWidget *handle, gpointer user_data)
+{
+  darktable.gui->widgets.panel_handle_dragging = FALSE;
+}
+
+static void _panel_handle_touch_end(GtkGestureDrag *gesture, double dx, double dy,
+                                    gpointer user_data)
+{
+  _panel_handle_button_released(GTK_GESTURE_SINGLE(gesture), 1, dx, dy, user_data);
+}
+
+static void _panel_handle_touch_cancel(GtkGesture *gesture, GdkEventSequence *sequence,
+                                       gpointer user_data)
 {
   darktable.gui->widgets.panel_handle_dragging = FALSE;
 }
@@ -3426,12 +3474,8 @@ static void _panel_set_side_panel_width(GtkWidget *widget, const dt_ui_panel_t p
     darktable.gui->dpi_factor * dt_conf_get_int("max_panel_width");
   int used_w = min_center_w;
 
-  // Constraint: window width - center min - other side panel (if visible) - borders
+  // collapse controls overlay the center and do not consume layout width
   const dt_ui_panel_t other_panel = panel == DT_UI_PANEL_LEFT? DT_UI_PANEL_RIGHT : DT_UI_PANEL_LEFT;
-  if(gtk_widget_get_visible(darktable.gui->widgets.left_border))
-    used_w += gtk_widget_get_allocated_width(darktable.gui->widgets.left_border);
-  if(gtk_widget_get_visible(darktable.gui->widgets.right_border))
-    used_w += gtk_widget_get_allocated_width(darktable.gui->widgets.right_border);
   if(gtk_widget_get_visible(darktable.gui->ui->panels[other_panel]))
     used_w += gtk_widget_get_allocated_width(darktable.gui->ui->panels[other_panel]);
 
@@ -3445,18 +3489,11 @@ static void _panel_set_side_panel_width(GtkWidget *widget, const dt_ui_panel_t p
   dt_ui_panel_set_size(darktable.gui->ui, panel, sx);
 }
 
-static void _panel_handle_motion_callback(GtkEventControllerMotion *controller,
-                                          gdouble x,
-                                          gdouble y,
-                                          const gpointer user_data)
+static void _panel_handle_resize(GtkWidget *handle, GtkWidget *widget,
+                                  double root_x, double root_y)
 {
-  GtkWidget *handle = dt_gui_get_widget(controller);
-  GtkWidget *widget = (GtkWidget *)user_data;
   if(darktable.gui->widgets.panel_handle_dragging)
   {
-    gdouble root_x = 0, root_y = 0;
-    GdkEvent *event = dt_gui_get_current_event(GTK_EVENT_CONTROLLER(controller));
-    if(event) dt_gui_get_event_coords(event, &root_x, &root_y);
     const gdouble delta_x = root_x - panel_drag_start_x;
 
     if(strcmp(gtk_widget_get_name(handle), "panel-handle-right") == 0)
@@ -3469,9 +3506,7 @@ static void _panel_handle_motion_callback(GtkEventControllerMotion *controller,
     }
     else if(strcmp(gtk_widget_get_name(handle), "panel-handle-bottom") == 0)
     {
-      const gint sy = gtk_widget_get_allocated_height(widget);
-      int sx = panel_drag_start_size;
-      sx = CLAMP((sy + darktable.gui->widgets.panel_handle_y - y),
+      const int sx = CLAMP((int)(panel_drag_start_size - (root_y - panel_drag_start_y)),
                  darktable.gui->dpi_factor * dt_conf_get_int("min_panel_height"),
                  darktable.gui->dpi_factor * dt_conf_get_int("max_panel_height"));
       dt_ui_panel_set_size(darktable.gui->ui, DT_UI_PANEL_BOTTOM, sx);
@@ -3479,10 +3514,54 @@ static void _panel_handle_motion_callback(GtkEventControllerMotion *controller,
     }
 
     gtk_widget_queue_resize(widget);
+  }
+}
+
+static void _panel_handle_motion_callback(GtkEventControllerMotion *controller,
+                                          gdouble x, gdouble y,
+                                          const gpointer user_data)
+{
+  GdkEvent *event = dt_gui_get_current_event(GTK_EVENT_CONTROLLER(controller));
+  if(event)
+  {
+    double root_x = 0, root_y = 0;
+    dt_gui_get_event_coords(event, &root_x, &root_y);
+    _panel_handle_resize(dt_gui_get_widget(controller), user_data, root_x, root_y);
 #if !GTK_CHECK_VERSION(4, 0, 0)
-    if(event) gdk_event_free(event);
+    gdk_event_free(event);
 #endif
   }
+}
+
+static void _panel_handle_touch_motion(GtkGestureDrag *gesture, double dx, double dy,
+                                       gpointer user_data)
+{
+  const GdkEvent *event = gtk_gesture_get_last_event
+    (GTK_GESTURE(gesture), gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture)));
+  if(!event || !darktable.gui->widgets.panel_handle_dragging) return;
+  dt_gui_claim(gesture);
+  double root_x = 0, root_y = 0;
+  dt_gui_get_event_coords(event, &root_x, &root_y);
+  _panel_handle_resize(dt_gui_get_widget(gesture), user_data, root_x, root_y);
+}
+
+static GtkGesture *_panel_handle_connect(GtkWidget *handle, GtkWidget *panel)
+{
+  gtk_widget_add_events(handle, GDK_TOUCH_MASK);
+  GtkGestureSingle *click = dt_gui_connect_click
+    (handle, _panel_handle_button_pressed, _panel_handle_button_released, panel);
+  GtkGesture *touch = dt_gui_connect_drag
+    (handle, NULL, _panel_handle_touch_end, _panel_handle_touch_motion, panel);
+  // see native touch before GtkWidget's bubble handler emulates mouse events
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(click), GTK_PHASE_TARGET);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(touch), GTK_PHASE_TARGET);
+  gtk_gesture_single_set_touch_only(GTK_GESTURE_SINGLE(touch), TRUE);
+  gtk_gesture_group(GTK_GESTURE(click), touch);
+  g_signal_connect(touch, "cancel", G_CALLBACK(_panel_handle_touch_cancel), NULL);
+  dt_gui_connect_motion(handle, _panel_handle_motion_callback,
+                        _panel_handle_cursor_enter, _panel_handle_cursor_leave, panel);
+  g_signal_connect(handle, "unmap", G_CALLBACK(_panel_handle_unmap), NULL);
+  return touch;
 }
 
 static void _ui_init_panel_left(dt_ui_t *ui,
@@ -3501,13 +3580,11 @@ static void _ui_init_panel_left(dt_ui_t *ui,
   GtkWidget *handle = gtk_drawing_area_new();
   gtk_widget_set_halign(handle, GTK_ALIGN_END);
   gtk_widget_set_valign(handle, GTK_ALIGN_FILL);
-  gtk_widget_set_size_request(handle, DT_RESIZE_HANDLE_SIZE, -1);
+  gtk_widget_set_size_request(handle, DT_PIXEL_APPLY_DPI(14), -1);
   gtk_overlay_add_overlay(GTK_OVERLAY(over), handle);
   gtk_widget_set_name(GTK_WIDGET(handle), "panel-handle-left");
 
-  dt_gui_connect_click(handle, _panel_handle_button_pressed, _panel_handle_button_released, widget);
-  dt_gui_connect_motion(handle, _panel_handle_motion_callback,
-                        _panel_handle_cursor_enter, _panel_handle_cursor_leave, widget);
+  _panel_handle_connect(handle, widget);
   gtk_widget_show(handle);
 
   gtk_grid_attach(GTK_GRID(container), over, 1, 1, 1, 1);
@@ -3541,13 +3618,11 @@ static void _ui_init_panel_right(dt_ui_t *ui,
   GtkWidget *handle = gtk_drawing_area_new();
   gtk_widget_set_halign(handle, GTK_ALIGN_START);
   gtk_widget_set_valign(handle, GTK_ALIGN_FILL);
-  gtk_widget_set_size_request(handle, DT_RESIZE_HANDLE_SIZE, -1);
+  gtk_widget_set_size_request(handle, DT_PIXEL_APPLY_DPI(14), -1);
   gtk_overlay_add_overlay(GTK_OVERLAY(over), handle);
   gtk_widget_set_name(GTK_WIDGET(handle), "panel-handle-right");
 
-  dt_gui_connect_click(handle, _panel_handle_button_pressed, _panel_handle_button_released, widget);
-  dt_gui_connect_motion(handle, _panel_handle_motion_callback,
-                        _panel_handle_cursor_enter, _panel_handle_cursor_leave, widget);
+  _panel_handle_connect(handle, widget);
   gtk_widget_show(handle);
 
   gtk_grid_attach(GTK_GRID(container), over, 3, 1, 1, 1);
@@ -3616,14 +3691,12 @@ static void _ui_init_panel_bottom(dt_ui_t *ui,
   GtkWidget *handle = gtk_drawing_area_new();
   gtk_widget_set_halign(handle, GTK_ALIGN_FILL);
   gtk_widget_set_valign(handle, GTK_ALIGN_START);
-  gtk_widget_set_size_request(handle, -1, DT_RESIZE_HANDLE_SIZE);
+  gtk_widget_set_size_request(handle, -1, DT_PIXEL_APPLY_DPI(14));
   gtk_overlay_add_overlay(GTK_OVERLAY(over), handle);
 
   gtk_widget_set_name(GTK_WIDGET(handle), "panel-handle-bottom");
 
-  dt_gui_connect_click(handle, _panel_handle_button_pressed, _panel_handle_button_released, widget);
-  dt_gui_connect_motion(handle, _panel_handle_motion_callback,
-                        _panel_handle_cursor_enter, _panel_handle_cursor_leave, widget);
+  _panel_handle_connect(handle, widget);
   gtk_widget_show(handle);
 
   gtk_grid_attach(GTK_GRID(container), over, 1, 2, 3, 1);
