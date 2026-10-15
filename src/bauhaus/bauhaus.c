@@ -4161,6 +4161,18 @@ static void _widget_button_press(GtkGestureSingle *gesture,
   dt_gui_claim(gesture);
 }
 
+static void _widget_release_touch_pointer(GtkGesture *gesture, GdkEventSequence *sequence)
+{
+  const GdkEvent *event = gtk_gesture_get_last_event(gesture, sequence);
+  GdkDevice *source = event ? gdk_event_get_source_device(event) : NULL;
+  if(!source || gdk_device_get_source(source) != GDK_SOURCE_TOUCHSCREEN) return;
+  const GdkEventType type = dt_gdk_event_get_type(event);
+  if(type != GDK_BUTTON_RELEASE && type != GDK_TOUCH_END && type != GDK_TOUCH_CANCEL) return;
+  GdkDevice *device = gdk_event_get_device(event);
+  GdkSeat *seat = device ? gdk_device_get_seat(device) : NULL;
+  if(seat) gdk_seat_ungrab(seat);
+}
+
 static void _widget_button_release(GtkGestureSingle *gesture,
                                    const int n_press,
                                    const double x,
@@ -4181,12 +4193,8 @@ static void _widget_button_release(GtkGestureSingle *gesture,
       dt_bauhaus_widget_release_quad(widget);
       return;
     }
-    if(dt_gdk_event_get_type(event) == GDK_BUTTON_RELEASE)
-    {
-      GdkDevice *device = gdk_event_get_device(event);
-      GdkSeat *seat = device ? gdk_device_get_seat(device) : NULL;
-      if(seat) gdk_seat_ungrab(seat);
-    }
+    _widget_release_touch_pointer(GTK_GESTURE(gesture),
+                                  gtk_gesture_single_get_current_sequence(gesture));
   }
   if(w->touch_pending)
   {
@@ -4292,7 +4300,14 @@ static void _widget_touch_cancel(GtkGesture *gesture,
                                  GdkEventSequence *sequence,
                                  GtkWidget *widget)
 {
+  _widget_release_touch_pointer(gesture, sequence);
   _widget_touch_reset(widget);
+}
+
+static void _widget_focus_changed(GtkWidget *widget, GParamSpec *pspec, gpointer user_data)
+{
+  // a canceled drag must not keep editing the previous control after focus moves
+  if(!gtk_widget_is_focus(widget)) _widget_touch_reset(widget);
 }
 
 static void _widget_touch_end(GtkGestureDrag *gesture,
@@ -4300,6 +4315,8 @@ static void _widget_touch_end(GtkGestureDrag *gesture,
                               double dy,
                               GtkWidget *widget)
 {
+  _widget_release_touch_pointer(GTK_GESTURE(gesture),
+                                gtk_gesture_single_get_current_sequence(GTK_GESTURE_SINGLE(gesture)));
   // a stopped click recognizer may not deliver released after a drag
   // leave pending taps for the click recognizer to activate on release
   if(DT_BAUHAUS_WIDGET(widget)->touch_dragging) _widget_touch_reset(widget);
@@ -4384,6 +4401,7 @@ static void dt_bh_init(DtBauhausWidget *w)
   gtk_gesture_group(GTK_GESTURE(gesture), touch_drag);
   g_signal_connect(touch_drag, "cancel", G_CALLBACK(_widget_touch_cancel), widget);
   g_signal_connect(widget, "unmap", G_CALLBACK(_widget_touch_reset), NULL);
+  g_signal_connect(widget, "notify::is-focus", G_CALLBACK(_widget_focus_changed), NULL);
 
   dt_gui_connect_motion(w, _widget_motion, _widget_enter, _widget_leave, widget);
 

@@ -22,10 +22,14 @@
 #include <cmocka.h>
 #include "dtgtk/togglebutton.h"
 
+static int touch_ungrabs;
+static void dt_test_touch_ungrab(GdkSeat *seat) { touch_ungrabs++; }
 // exercise real GTK gesture recognition against the private widget callbacks
 #define dt_key_modifier_state dt_test_key_modifier_state
+#define gdk_seat_ungrab dt_test_touch_ungrab
 #include "bauhaus/bauhaus.c"
 #undef dt_key_modifier_state
+#undef gdk_seat_ungrab
 
 GdkModifierType dt_test_key_modifier_state(void)
 {
@@ -212,7 +216,62 @@ static void test_drag_end_without_click_release(void **state)
   assert_true(DT_BAUHAUS_WIDGET(f.widget)->touch_dragging);
   // a stopped click recognizer no longer receives this sequence's release
   gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(f.click), GTK_PHASE_NONE);
+  touch_ungrabs = 0;
   _touch(&f, GDK_TOUCH_END, 230, 42);
+  assert_true(touch_ungrabs > 0);
+  assert_false(DT_BAUHAUS_WIDGET(f.widget)->touch_dragging);
+  assert_false(DT_BAUHAUS_WIDGET(f.widget)->slider.is_dragging);
+  gtk_widget_destroy(f.window);
+}
+
+static void test_focus_transfer_stops_old_slider(void **state)
+{
+  touch_fixture_t f = _fixture(FALSE);
+  g_object_ref(f.widget);
+  gtk_container_remove(GTK_CONTAINER(f.window), f.widget);
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  gtk_container_add(GTK_CONTAINER(f.window), box);
+  gtk_container_add(GTK_CONTAINER(box), f.widget);
+  g_object_unref(f.widget);
+  GtkWidget *next = dt_bauhaus_slider_new_with_range_and_feedback(NULL, 0, 1, .01, .5, 2, FALSE);
+  gtk_container_add(GTK_CONTAINER(box), next);
+  gtk_widget_show_all(f.window);
+  gtk_container_check_resize(GTK_CONTAINER(f.window));
+  gtk_widget_grab_focus(f.widget);
+  GtkAllocation allocation = { 0, 0, 400, 60 };
+  gtk_widget_size_allocate(f.widget, &allocation);
+  _touch(&f, GDK_TOUCH_BEGIN, 150, 20);
+  _touch(&f, GDK_TOUCH_UPDATE, 230, 22);
+  assert_true(DT_BAUHAUS_WIDGET(f.widget)->touch_dragging);
+  const float previous = dt_bauhaus_slider_get(f.widget);
+  touch_fixture_t second = f;
+  second.widget = second.target = next;
+  second.click = dt_gui_connect_click(next, _widget_button_press, _widget_button_release, next);
+  second.drag = dt_gui_connect_drag(next, NULL, _widget_touch_end, _widget_touch_motion, next);
+  gtk_gesture_group(GTK_GESTURE(second.click), second.drag);
+  gtk_widget_size_allocate(next, &allocation);
+  _touch(&second, GDK_TOUCH_BEGIN, 150, 20);
+  _touch(&second, GDK_TOUCH_END, 150, 20);
+  assert_true(gtk_widget_is_focus(next));
+  assert_false(DT_BAUHAUS_WIDGET(f.widget)->touch_pending);
+  assert_false(DT_BAUHAUS_WIDGET(f.widget)->touch_dragging);
+  assert_false(DT_BAUHAUS_WIDGET(f.widget)->slider.is_dragging);
+  _widget_touch_motion(GTK_GESTURE_DRAG(f.drag), 160, 2, f.widget);
+  _widget_motion(NULL, 350, 22, f.widget);
+  assert_float_equal(dt_bauhaus_slider_get(f.widget), previous, .001);
+  gtk_widget_destroy(f.window);
+}
+
+static void test_emulated_drag_end_releases_grab(void **state)
+{
+  touch_fixture_t f = _fixture(FALSE);
+  _emulated_touch(&f, GDK_BUTTON_PRESS, 150, 40);
+  _emulated_touch(&f, GDK_MOTION_NOTIFY, 230, 42);
+  assert_true(DT_BAUHAUS_WIDGET(f.widget)->touch_dragging);
+  gtk_event_controller_set_propagation_phase(GTK_EVENT_CONTROLLER(f.click), GTK_PHASE_NONE);
+  touch_ungrabs = 0;
+  _emulated_touch(&f, GDK_BUTTON_RELEASE, 230, 42);
+  assert_true(touch_ungrabs > 0);
   assert_false(DT_BAUHAUS_WIDGET(f.widget)->touch_dragging);
   assert_false(DT_BAUHAUS_WIDGET(f.widget)->slider.is_dragging);
   gtk_widget_destroy(f.window);
@@ -486,6 +545,8 @@ int main(int argc, char *argv[])
     cmocka_unit_test(test_mouse_slider_press_still_edits),
     cmocka_unit_test(test_horizontal_swipe_adjusts_slider),
     cmocka_unit_test(test_drag_end_without_click_release),
+    cmocka_unit_test(test_focus_transfer_stops_old_slider),
+    cmocka_unit_test(test_emulated_drag_end_releases_grab),
     cmocka_unit_test(test_tab_switch_stops_old_slider),
     cmocka_unit_test(test_cancel_stops_slider_drag),
     cmocka_unit_test(test_pointer_motion_does_not_duplicate_touch_drag),
