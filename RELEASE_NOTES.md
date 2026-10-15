@@ -121,6 +121,9 @@ changes (where available).
 - Histogram exposure and black-point adjustments now support finger drags
   without requiring a mouse hover first.
 
+- Color equalizer graph points can be selected and dragged directly by
+  touch, with larger finger targets and scrolling outside the points.
+
 - Touch slider drags stop when focus moves to another control, and release
   their pointer grab when the gesture ends or is canceled.
 
