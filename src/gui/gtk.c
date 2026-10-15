@@ -3711,17 +3711,31 @@ static void _ui_init_panel_bottom(dt_ui_t *ui,
 }
 
 
+static GtkWidget *_center_toolbar_scroll(GtkWidget *container, GtkWidget *toolbar)
+{
+  GtkWidget *scroll = dt_gui_scroll_wrap(toolbar);
+  gtk_widget_set_vexpand(scroll, FALSE);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
+                                 GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
+  // toolbar controls must not impose their combined minimum width on the window
+  gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(scroll), FALSE);
+  gtk_scrolled_window_set_kinetic_scrolling(GTK_SCROLLED_WINDOW(scroll), TRUE);
+  gtk_scrolled_window_set_capture_button_press(GTK_SCROLLED_WINDOW(scroll), TRUE);
+  gtk_box_pack_start(GTK_BOX(container), scroll, FALSE, TRUE, 0);
+  return scroll;
+}
+
 static void _ui_init_panel_center_top(dt_ui_t *ui,
                                       GtkWidget *container)
 {
   GtkWidget *widget;
 
   /* create the panel box */
-  ui->panels[DT_UI_PANEL_CENTER_TOP] = widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_widget_set_name(widget, "header-toolbar");
   dt_gui_add_class(widget, "dt_big_btn_canvas");
 
-  gtk_box_pack_start(GTK_BOX(container), widget, FALSE, TRUE, 0);
+  ui->panels[DT_UI_PANEL_CENTER_TOP] = _center_toolbar_scroll(container, widget);
 
   /* add container for center top left */
   ui->containers[DT_UI_CONTAINER_PANEL_CENTER_TOP_LEFT] =
@@ -3751,11 +3765,10 @@ static void _ui_init_panel_center_bottom(dt_ui_t *ui,
   GtkWidget *widget;
 
   /* create the panel box */
-  ui->panels[DT_UI_PANEL_CENTER_BOTTOM] =
-    widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   gtk_widget_set_name(widget, "footer-toolbar");
   dt_gui_add_class(widget, "dt_big_btn_canvas");
-  gtk_box_pack_start(GTK_BOX(container), widget, FALSE, TRUE, 0);
+  ui->panels[DT_UI_PANEL_CENTER_BOTTOM] = _center_toolbar_scroll(container, widget);
 
   /* adding the center bottom left toolbox */
   ui->containers[DT_UI_CONTAINER_PANEL_CENTER_BOTTOM_LEFT] =

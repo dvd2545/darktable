@@ -146,6 +146,68 @@ static void test_bottom_finger_resize(void **state) { _resize_test(DT_UI_PANEL_B
 static void test_bottom_finger_minimum(void **state) { _resize_test(DT_UI_PANEL_BOTTOM, 0, 300, 80, FALSE, FALSE); }
 static void test_cancel_resize(void **state) { _resize_test(DT_UI_PANEL_LEFT, 40, 0, 340, FALSE, TRUE); }
 static void test_mouse_resize(void **state) { _resize_test(DT_UI_PANEL_LEFT, 80, 0, 380, TRUE, FALSE); }
+
+static void _toolbar_test(gboolean top)
+{
+  GtkWidget *window = gtk_offscreen_window_new();
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  gtk_container_add(GTK_CONTAINER(window), box);
+  if(top) _ui_init_panel_center_top(darktable.gui->ui, box);
+  else _ui_init_panel_center_bottom(darktable.gui->ui, box);
+  GtkWidget *controls = darktable.gui->ui->containers[top
+    ? DT_UI_CONTAINER_PANEL_CENTER_TOP_LEFT : DT_UI_CONTAINER_PANEL_CENTER_BOTTOM_LEFT];
+  for(int i = 0; i < 12; i++)
+    gtk_box_pack_start(GTK_BOX(controls), gtk_button_new_with_label("toolbar control"), FALSE, FALSE, 0);
+  gtk_window_set_default_size(GTK_WINDOW(window), 400, 100);
+  gtk_widget_show_all(window);
+  gtk_container_check_resize(GTK_CONTAINER(window));
+  GtkWidget *scroll = darktable.gui->ui->panels[top
+    ? DT_UI_PANEL_CENTER_TOP : DT_UI_PANEL_CENTER_BOTTOM];
+  int minimum, natural;
+  gtk_widget_get_preferred_width(box, &minimum, &natural);
+  assert_true(minimum < 400);
+  assert_int_equal(gtk_widget_get_allocated_width(window), 400);
+  GtkAdjustment *adjustment = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(scroll));
+  assert_true(gtk_adjustment_get_upper(adjustment) > gtk_adjustment_get_page_size(adjustment));
+  assert_true(gtk_scrolled_window_get_kinetic_scrolling(GTK_SCROLLED_WINDOW(scroll)));
+  gtk_adjustment_set_value(adjustment, 100);
+  assert_float_equal(gtk_adjustment_get_value(adjustment), 100, .01);
+  GTypeQuery query;
+  g_type_query(GDK_TYPE_DEVICE, &query);
+  static GType touch_type;
+  if(!touch_type)
+    touch_type = g_type_register_static_simple(GDK_TYPE_DEVICE, "DtToolbarTestTouch",
+                                               query.class_size, NULL, query.instance_size, NULL, 0);
+  GdkDevice *touch = g_object_new(touch_type, "display", gdk_display_get_default(),
+                                  "name", "test touch", "type", GDK_DEVICE_TYPE_SLAVE,
+                                  "input-source", GDK_SOURCE_TOUCHSCREEN,
+                                  "input-mode", GDK_MODE_SCREEN, NULL);
+  GList *children = gtk_container_get_children(GTK_CONTAINER(controls));
+  GdkWindow *event_window = gtk_button_get_event_window(GTK_BUTTON(children->data));
+  g_list_free(children);
+  for(int i = 0; i < 3; i++)
+  {
+    GdkEvent *event = gdk_event_new(i == 0 ? GDK_TOUCH_BEGIN : i == 1 ? GDK_TOUCH_UPDATE : GDK_TOUCH_END);
+    event->touch.window = g_object_ref(event_window);
+    event->touch.sequence = (GdkEventSequence *)scroll;
+    event->touch.x = 50 - i * 40;
+    event->touch.y = 10;
+    event->touch.x_root = 1000 - i * 40;
+    event->touch.y_root = 500;
+    event->touch.time = 1000 + i * 100;
+    event->touch.emulating_pointer = TRUE;
+    gdk_event_set_device(event, gdk_seat_get_pointer(gdk_display_get_default_seat(gdk_display_get_default())));
+    gdk_event_set_source_device(event, touch);
+    gtk_main_do_event(event);
+    gdk_event_free(event);
+  }
+  assert_true(gtk_adjustment_get_value(adjustment) > 100);
+  g_object_unref(touch);
+  gtk_widget_destroy(window);
+}
+
+static void test_top_toolbar_overflow(void **state) { _toolbar_test(TRUE); }
+static void test_bottom_toolbar_overflow(void **state) { _toolbar_test(FALSE); }
 #endif
 
 int main(int argc, char **argv)
@@ -161,7 +223,8 @@ int main(int argc, char **argv)
   const struct CMUnitTest tests[] = {
     cmocka_unit_test(test_left_finger_resize), cmocka_unit_test(test_right_finger_resize),
     cmocka_unit_test(test_bottom_finger_resize), cmocka_unit_test(test_bottom_finger_minimum),
-    cmocka_unit_test(test_cancel_resize), cmocka_unit_test(test_mouse_resize)
+    cmocka_unit_test(test_cancel_resize), cmocka_unit_test(test_mouse_resize),
+    cmocka_unit_test(test_top_toolbar_overflow), cmocka_unit_test(test_bottom_toolbar_overflow)
   };
   return cmocka_run_group_tests(tests, NULL, NULL);
 #endif
