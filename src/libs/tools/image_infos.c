@@ -144,7 +144,12 @@ void gui_init(dt_lib_module_t *self)
 
   self->widget = gtk_event_box_new();
   d->tview = gtk_label_new("");
-  gtk_label_set_ellipsize(GTK_LABEL(d->tview), PANGO_ELLIPSIZE_MIDDLE);
+  // center toolbars scroll; preserve the full information line instead of truncating it
+  const dt_ui_container_t location = container(self);
+  gtk_label_set_ellipsize(GTK_LABEL(d->tview),
+                         location == DT_UI_CONTAINER_PANEL_CENTER_BOTTOM_CENTER
+                         || location == DT_UI_CONTAINER_PANEL_CENTER_TOP_CENTER
+                         ? PANGO_ELLIPSIZE_NONE : PANGO_ELLIPSIZE_MIDDLE);
   gtk_label_set_justify(GTK_LABEL(d->tview), GTK_JUSTIFY_CENTER);
   gtk_container_add(GTK_CONTAINER(self->widget), d->tview);
   gtk_widget_set_name(GTK_WIDGET(d->tview), "image-info");

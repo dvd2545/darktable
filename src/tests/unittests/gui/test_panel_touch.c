@@ -27,6 +27,15 @@
 #undef dt_conf_get_int
 #undef dt_conf_set_int
 
+static const char *info_position = "bottom center";
+static const char *dt_test_info_position(const char *key) { return info_position; }
+// exercise the real label setup without registering application-wide signals
+#undef DT_CONTROL_SIGNAL_HANDLE
+#define DT_CONTROL_SIGNAL_HANDLE(signal, cb) (void)(cb)
+#define dt_conf_get_string_const dt_test_info_position
+#include "libs/tools/image_infos.c"
+#undef dt_conf_get_string_const
+
 #ifdef _WIN32
 #include "win/main_wrapper.h"
 #endif
@@ -105,12 +114,13 @@ static void _resize_test(dt_ui_panel_t panel, double dx, double dy,
   gtk_grid_attach(GTK_GRID(grid), right, 2, 0, 1, 1);
   gtk_grid_attach(GTK_GRID(grid), bottom, 0, 1, 3, 1);
   GtkWidget *target = darktable.gui->ui->panels[panel];
-  GtkWidget *handle = gtk_drawing_area_new();
-  gtk_widget_set_name(handle, panel == DT_UI_PANEL_LEFT ? "panel-handle-left"
-                              : panel == DT_UI_PANEL_RIGHT ? "panel-handle-right"
-                              : "panel-handle-bottom");
-  gtk_container_add(GTK_CONTAINER(target), handle);
-  GtkGesture *drag = _panel_handle_connect(handle, target);
+  GtkWidget *toggle = gtk_drawing_area_new();
+  gtk_widget_set_size_request(toggle, 32, 32);
+  GtkWidget *border = _panel_resize_border(target, toggle,
+    panel == DT_UI_PANEL_LEFT ? "panel-handle-left"
+    : panel == DT_UI_PANEL_RIGHT ? "panel-handle-right" : "panel-handle-bottom");
+  gtk_grid_attach(GTK_GRID(grid), border, 3, 0, 1, 1);
+  GtkWidget *handle = gtk_bin_get_child(GTK_BIN(border));
   gtk_widget_show_all(window);
   gtk_container_check_resize(GTK_CONTAINER(window));
   GtkAllocation allocation = { 0, 0, panel == DT_UI_PANEL_BOTTOM ? 1200 : 300,
@@ -128,7 +138,6 @@ static void _resize_test(dt_ui_panel_t panel, double dx, double dy,
                                   "input-mode", GDK_MODE_SCREEN, NULL);
   _panel_event(handle, mouse ? NULL : touch, mouse ? GDK_BUTTON_PRESS : GDK_TOUCH_BEGIN, 0, 0);
   assert_true(darktable.gui->widgets.panel_handle_dragging);
-  if(!mouse) assert_true(gtk_gesture_handles_sequence(drag, (GdkEventSequence *)handle));
   _panel_event(handle, mouse ? NULL : touch, mouse ? GDK_MOTION_NOTIFY : GDK_TOUCH_UPDATE, dx, dy);
   int width, height;
   gtk_widget_get_size_request(target, &width, &height);
@@ -208,6 +217,74 @@ static void _toolbar_test(gboolean top)
 
 static void test_top_toolbar_overflow(void **state) { _toolbar_test(TRUE); }
 static void test_bottom_toolbar_overflow(void **state) { _toolbar_test(FALSE); }
+
+static void _border_layout_test(gboolean horizontal)
+{
+  GtkWidget *window = gtk_offscreen_window_new();
+  GtkWidget *panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  g_object_ref_sink(panel);
+  GtkWidget *toggle = _init_outer_border(32, 32,
+    horizontal ? DT_UI_BORDER_BOTTOM : DT_UI_BORDER_LEFT);
+  GtkWidget *border = _panel_resize_border(panel, toggle,
+    horizontal ? "panel-handle-bottom" : "panel-handle-left");
+  gtk_container_add(GTK_CONTAINER(window), border);
+  gtk_window_set_default_size(GTK_WINDOW(window), horizontal ? 400 : 32, horizontal ? 32 : 400);
+  gtk_widget_show_all(window);
+  gtk_container_check_resize(GTK_CONTAINER(window));
+  GtkAllocation allocation;
+  gtk_widget_get_allocation(toggle, &allocation);
+  int x, y;
+  assert_true(gtk_widget_translate_coordinates(toggle, border, 0, 0, &x, &y));
+  assert_int_equal(x + allocation.width / 2, gtk_widget_get_allocated_width(border) / 2);
+  assert_int_equal(y + allocation.height / 2, gtk_widget_get_allocated_height(border) / 2);
+  GtkWidget *handle = gtk_bin_get_child(GTK_BIN(border));
+  assert_int_equal(gtk_widget_get_allocated_width(handle), gtk_widget_get_allocated_width(border));
+  assert_int_equal(gtk_widget_get_allocated_height(handle), gtk_widget_get_allocated_height(border));
+  gtk_widget_hide(toggle);
+  assert_false(gtk_widget_get_visible(border));
+  gtk_widget_show(toggle);
+  assert_true(gtk_widget_get_visible(border));
+  gtk_widget_destroy(window);
+  g_object_unref(panel);
+}
+
+static void test_vertical_border_layout(void **state) { _border_layout_test(FALSE); }
+static void test_horizontal_border_layout(void **state) { _border_layout_test(TRUE); }
+
+static void test_info_text_overflow(void **state)
+{
+  dt_lib_module_t module = { 0 };
+  info_position = "bottom center";
+  gui_init(&module);
+  GtkWidget *label = ((dt_lib_imageinfo_t *)module.data)->tview;
+  gtk_label_set_text(GTK_LABEL(label), "image.raw | 1/125s | f/8 | ISO 100 | camera and lens information");
+  assert_int_equal(gtk_label_get_ellipsize(GTK_LABEL(label)), PANGO_ELLIPSIZE_NONE);
+  GtkWidget *window = gtk_offscreen_window_new();
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  gtk_container_add(GTK_CONTAINER(window), box);
+  GtkWidget *scroll = _center_toolbar_scroll(box, module.widget);
+  gtk_window_set_default_size(GTK_WINDOW(window), 160, 60);
+  gtk_widget_show_all(window);
+  gtk_container_check_resize(GTK_CONTAINER(window));
+  GtkAdjustment *adjustment = gtk_scrolled_window_get_hadjustment(GTK_SCROLLED_WINDOW(scroll));
+  int minimum, natural;
+  gtk_widget_get_preferred_width(label, &minimum, &natural);
+  assert_true(minimum > 160);
+  assert_true(gtk_adjustment_get_upper(adjustment) > gtk_adjustment_get_page_size(adjustment));
+  gtk_adjustment_set_value(adjustment, 100);
+  assert_float_equal(gtk_adjustment_get_value(adjustment), 100, .01);
+  gui_cleanup(&module);
+  gtk_widget_destroy(window);
+
+  info_position = "top left";
+  gui_init(&module);
+  label = ((dt_lib_imageinfo_t *)module.data)->tview;
+  assert_int_equal(gtk_label_get_ellipsize(GTK_LABEL(label)), PANGO_ELLIPSIZE_MIDDLE);
+  g_object_ref_sink(module.widget);
+  gui_cleanup(&module);
+  gtk_widget_destroy(module.widget);
+  g_object_unref(module.widget);
+}
 #endif
 
 int main(int argc, char **argv)
@@ -224,7 +301,9 @@ int main(int argc, char **argv)
     cmocka_unit_test(test_left_finger_resize), cmocka_unit_test(test_right_finger_resize),
     cmocka_unit_test(test_bottom_finger_resize), cmocka_unit_test(test_bottom_finger_minimum),
     cmocka_unit_test(test_cancel_resize), cmocka_unit_test(test_mouse_resize),
-    cmocka_unit_test(test_top_toolbar_overflow), cmocka_unit_test(test_bottom_toolbar_overflow)
+    cmocka_unit_test(test_top_toolbar_overflow), cmocka_unit_test(test_bottom_toolbar_overflow),
+    cmocka_unit_test(test_vertical_border_layout), cmocka_unit_test(test_horizontal_border_layout),
+    cmocka_unit_test(test_info_text_overflow)
   };
   return cmocka_run_group_tests(tests, NULL, NULL);
 #endif

@@ -152,6 +152,7 @@ static void _ui_init_panel_center_top(dt_ui_t *ui, GtkWidget *container);
 static void _ui_init_panel_center_bottom(dt_ui_t *ui, GtkWidget *container);
 /* initialize the bottom panel */
 static void _ui_init_panel_bottom(dt_ui_t *ui, GtkWidget *container);
+static GtkWidget *_panel_resize_border(GtkWidget *panel, GtkWidget *toggle, const char *name);
 /* generic callback for redraw widget signals */
 static void _ui_widget_redraw_callback(gpointer instance, GtkWidget *widget);
 /* callback for redraw log signals */
@@ -2460,10 +2461,14 @@ static void _init_main_table(GtkWidget *container)
   /*
    * initialize the center top/center/bottom
    */
+  GtkWidget *bordergrid = gtk_grid_new();
+  gtk_widget_set_hexpand(bordergrid, TRUE);
+  gtk_widget_set_vexpand(bordergrid, TRUE);
+  gtk_grid_attach(GTK_GRID(container), bordergrid, 2, 1, 1, 1);
   widget = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_widget_set_hexpand(GTK_WIDGET(widget), TRUE);
   gtk_widget_set_vexpand(GTK_WIDGET(widget), TRUE);
-  gtk_grid_attach(GTK_GRID(container), widget, 2, 1, 1, 1);
+  gtk_grid_attach(GTK_GRID(bordergrid), widget, 1, 0, 1, 1);
 
   /* initialize the center top panel */
   _ui_init_panel_center_top(darktable.gui->ui, widget);
@@ -2491,7 +2496,7 @@ static void _init_main_table(GtkWidget *container)
   darktable.gui->ui->center = cda;
   darktable.gui->ui->center_base = ocda;
 
-  // keep collapse controls inside the workspace, including when panels are hidden
+  // create controls before the side panels connect their border scroll handlers
   GtkWidget **toggles[] = { &darktable.gui->widgets.left_border,
                            &darktable.gui->widgets.right_border,
                            &darktable.gui->widgets.top_border,
@@ -2513,7 +2518,8 @@ static void _init_main_table(GtkWidget *container)
     gtk_widget_set_margin_top(toggle, DT_PIXEL_APPLY_DPI(8));
     gtk_widget_set_margin_bottom(toggle, DT_PIXEL_APPLY_DPI(8));
     dt_gui_add_class(toggle, "dt_panel_toggle");
-    gtk_overlay_add_overlay(GTK_OVERLAY(ocda), toggle);
+    if(borders[i] == DT_UI_BORDER_TOP)
+      gtk_overlay_add_overlay(GTK_OVERLAY(ocda), toggle);
   }
 
   /* initialize the thumb panel */
@@ -2585,6 +2591,19 @@ static void _init_main_table(GtkWidget *container)
 
   /* initialize right panel */
   _ui_init_panel_right(darktable.gui->ui, container);
+
+  gtk_grid_attach(GTK_GRID(bordergrid),
+                  _panel_resize_border(darktable.gui->ui->panels[DT_UI_PANEL_LEFT],
+                                       darktable.gui->widgets.left_border, "panel-handle-left"),
+                  0, 0, 1, 1);
+  gtk_grid_attach(GTK_GRID(bordergrid),
+                  _panel_resize_border(darktable.gui->ui->panels[DT_UI_PANEL_RIGHT],
+                                       darktable.gui->widgets.right_border, "panel-handle-right"),
+                  2, 0, 1, 1);
+  gtk_grid_attach(GTK_GRID(bordergrid),
+                  _panel_resize_border(darktable.gui->ui->panels[DT_UI_PANEL_BOTTOM],
+                                       darktable.gui->widgets.bottom_border, "panel-handle-bottom"),
+                  0, 1, 3, 1);
 
   gtk_widget_show_all(container);
 
@@ -3374,6 +3393,7 @@ static void _panel_handle_button_pressed(GtkGestureSingle *gesture,
 
   GtkWidget *handle = dt_gui_get_widget(gesture);
   GtkWidget *widget = (GtkWidget *)user_data;
+  if(!gtk_widget_get_visible(widget)) return;
 
   if(n_press == 2)
   {
@@ -3564,6 +3584,38 @@ static GtkGesture *_panel_handle_connect(GtkWidget *handle, GtkWidget *panel)
   return touch;
 }
 
+static gboolean _panel_border_draw(GtkWidget *widget, cairo_t *cr, gpointer user_data)
+{
+  gtk_render_background(gtk_widget_get_style_context(widget), cr, 0, 0,
+                        gtk_widget_get_allocated_width(widget), gtk_widget_get_allocated_height(widget));
+  return FALSE;
+}
+
+static GtkWidget *_panel_resize_border(GtkWidget *panel, GtkWidget *toggle, const char *name)
+{
+  const gboolean horizontal = !strcmp(name, "panel-handle-bottom");
+  GtkWidget *border = gtk_overlay_new();
+  GtkWidget *handle = gtk_drawing_area_new();
+  gtk_widget_set_name(handle, name);
+  dt_gui_add_class(handle, "dt_panel_resize_border");
+  gtk_widget_set_size_request(handle, horizontal ? -1 : DT_PIXEL_APPLY_DPI(32),
+                              horizontal ? DT_PIXEL_APPLY_DPI(32) : -1);
+  gtk_container_add(GTK_CONTAINER(border), handle);
+  g_signal_connect(handle, "draw", G_CALLBACK(_panel_border_draw), NULL);
+  _panel_handle_connect(handle, panel);
+
+  gtk_widget_set_halign(toggle, GTK_ALIGN_CENTER);
+  gtk_widget_set_valign(toggle, GTK_ALIGN_CENTER);
+  gtk_widget_set_margin_start(toggle, 0);
+  gtk_widget_set_margin_end(toggle, 0);
+  gtk_widget_set_margin_top(toggle, 0);
+  gtk_widget_set_margin_bottom(toggle, 0);
+  gtk_overlay_add_overlay(GTK_OVERLAY(border), toggle);
+  // hiding border controls with the keyboard must also remove the divider space
+  g_object_bind_property(toggle, "visible", border, "visible", G_BINDING_SYNC_CREATE);
+  return border;
+}
+
 static void _ui_init_panel_left(dt_ui_t *ui,
                                 GtkWidget *container)
 {
@@ -3574,20 +3626,7 @@ static void _ui_init_panel_left(dt_ui_t *ui,
   widget = ui->panels[DT_UI_PANEL_LEFT] = dtgtk_side_panel_new();
   gtk_widget_set_name(widget, "left");
 
-  GtkWidget *over = gtk_overlay_new();
-  gtk_container_add(GTK_CONTAINER(over), widget);
-  // we add a transparent overlay over the modules margins to resize the panel
-  GtkWidget *handle = gtk_drawing_area_new();
-  gtk_widget_set_halign(handle, GTK_ALIGN_END);
-  gtk_widget_set_valign(handle, GTK_ALIGN_FILL);
-  gtk_widget_set_size_request(handle, DT_PIXEL_APPLY_DPI(14), -1);
-  gtk_overlay_add_overlay(GTK_OVERLAY(over), handle);
-  gtk_widget_set_name(GTK_WIDGET(handle), "panel-handle-left");
-
-  _panel_handle_connect(handle, widget);
-  gtk_widget_show(handle);
-
-  gtk_grid_attach(GTK_GRID(container), over, 1, 1, 1, 1);
+  gtk_grid_attach(GTK_GRID(container), widget, 1, 1, 1, 1);
 
   /* add top,center,bottom*/
   container = widget;
@@ -3612,20 +3651,7 @@ static void _ui_init_panel_right(dt_ui_t *ui,
   widget = ui->panels[DT_UI_PANEL_RIGHT] = dtgtk_side_panel_new();
   gtk_widget_set_name(widget, "right");
 
-  GtkWidget *over = gtk_overlay_new();
-  gtk_container_add(GTK_CONTAINER(over), widget);
-  // we add a transparent overlay over the modules margins to resize the panel
-  GtkWidget *handle = gtk_drawing_area_new();
-  gtk_widget_set_halign(handle, GTK_ALIGN_START);
-  gtk_widget_set_valign(handle, GTK_ALIGN_FILL);
-  gtk_widget_set_size_request(handle, DT_PIXEL_APPLY_DPI(14), -1);
-  gtk_overlay_add_overlay(GTK_OVERLAY(over), handle);
-  gtk_widget_set_name(GTK_WIDGET(handle), "panel-handle-right");
-
-  _panel_handle_connect(handle, widget);
-  gtk_widget_show(handle);
-
-  gtk_grid_attach(GTK_GRID(container), over, 3, 1, 1, 1);
+  gtk_grid_attach(GTK_GRID(container), widget, 3, 1, 1, 1);
 
   /* add top,center,bottom*/
   container = widget;
@@ -3685,21 +3711,7 @@ static void _ui_init_panel_bottom(dt_ui_t *ui,
   gtk_widget_set_name(widget, "bottom");
   _ui_init_bottom_panel_size(widget);
 
-  GtkWidget *over = gtk_overlay_new();
-  gtk_container_add(GTK_CONTAINER(over), widget);
-  // we add a transparent overlay over the modules margins to resize the panel
-  GtkWidget *handle = gtk_drawing_area_new();
-  gtk_widget_set_halign(handle, GTK_ALIGN_FILL);
-  gtk_widget_set_valign(handle, GTK_ALIGN_START);
-  gtk_widget_set_size_request(handle, -1, DT_PIXEL_APPLY_DPI(14));
-  gtk_overlay_add_overlay(GTK_OVERLAY(over), handle);
-
-  gtk_widget_set_name(GTK_WIDGET(handle), "panel-handle-bottom");
-
-  _panel_handle_connect(handle, widget);
-  gtk_widget_show(handle);
-
-  gtk_grid_attach(GTK_GRID(container), over, 1, 2, 3, 1);
+  gtk_grid_attach(GTK_GRID(container), widget, 1, 2, 3, 1);
 
   /* add the container */
   ui->containers[DT_UI_CONTAINER_PANEL_BOTTOM] =
