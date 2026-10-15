@@ -104,8 +104,12 @@ changes (where available).
 - Center toolbars now scroll horizontally with touch when side panels leave
   too little space, instead of forcing the window beyond the screen width.
 
-- Panel resize handles now support finger drags. Larger collapse controls sit
-  just inside the central workspace instead of at the screen borders.
+- Panel resize handles now support finger drags on visible divider bars.
+  Collapse controls sit in the middle of the dividers beside the center
+  workspace and above the filmstrip.
+
+- The image information line in center toolbars keeps its full text width
+  and scrolls when space is limited instead of shortening the text.
 
 - Added touchscreen swipe scrolling in the lighttable photo grid,
   filmstrip and dropdown lists. Vertical swipes over processing controls
