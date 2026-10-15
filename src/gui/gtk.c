@@ -2903,21 +2903,14 @@ void dt_ui_panel_show(const dt_ui_t *ui,
 {
   g_return_if_fail(GTK_IS_WIDGET(ui->panels[p]));
 
-  // for left and right sides, panels are inside a gtkoverlay
-  GtkWidget *over_panel = NULL;
-  if(p == DT_UI_PANEL_LEFT || p == DT_UI_PANEL_RIGHT || p == DT_UI_PANEL_BOTTOM)
-    over_panel = gtk_widget_get_parent(ui->panels[p]);
-
   if(show)
   {
     gtk_widget_show(ui->panels[p]);
-    if(over_panel) gtk_widget_show(over_panel);
     _handle_panel_widths(p);
   }
   else
   {
     gtk_widget_hide(ui->panels[p]);
-    if(over_panel) gtk_widget_hide(over_panel);
   }
 
   // force redraw of the border (to be sure the arrow in the right direction)

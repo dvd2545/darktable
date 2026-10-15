@@ -251,6 +251,38 @@ static void _border_layout_test(gboolean horizontal)
 static void test_vertical_border_layout(void **state) { _border_layout_test(FALSE); }
 static void test_horizontal_border_layout(void **state) { _border_layout_test(TRUE); }
 
+static void test_collapse_keeps_workspace_visible(void **state)
+{
+  GtkWidget *window = gtk_offscreen_window_new();
+  GtkWidget *grid = gtk_grid_new();
+  gtk_container_add(GTK_CONTAINER(window), grid);
+  GtkWidget *center = gtk_label_new("workspace");
+  gtk_grid_attach(GTK_GRID(grid), center, 1, 0, 1, 1);
+  const dt_ui_panel_t panels[] = { DT_UI_PANEL_LEFT, DT_UI_PANEL_RIGHT, DT_UI_PANEL_BOTTOM };
+  GtkWidget **toggles[] = { &darktable.gui->widgets.left_border,
+                            &darktable.gui->widgets.right_border,
+                            &darktable.gui->widgets.bottom_border };
+  for(int i = 0; i < 3; i++)
+  {
+    GtkWidget *panel = darktable.gui->ui->panels[panels[i]] = gtk_label_new("panel");
+    gtk_grid_attach(GTK_GRID(grid), panel, i, 1, 1, 1);
+    *toggles[i] = gtk_drawing_area_new();
+    gtk_grid_attach(GTK_GRID(grid), *toggles[i], i, 2, 1, 1);
+  }
+  gtk_widget_show_all(window);
+  for(int i = 0; i < 3; i++)
+  {
+    dt_ui_panel_show(darktable.gui->ui, panels[i], FALSE, FALSE);
+    assert_false(gtk_widget_get_visible(darktable.gui->ui->panels[panels[i]]));
+    assert_true(gtk_widget_get_visible(grid));
+    assert_true(gtk_widget_get_mapped(center));
+    assert_true(gtk_widget_get_mapped(*toggles[i]));
+    dt_ui_panel_show(darktable.gui->ui, panels[i], TRUE, FALSE);
+    assert_true(gtk_widget_get_mapped(darktable.gui->ui->panels[panels[i]]));
+  }
+  gtk_widget_destroy(window);
+}
+
 static void test_info_text_overflow(void **state)
 {
   dt_lib_module_t module = { 0 };
@@ -303,7 +335,7 @@ int main(int argc, char **argv)
     cmocka_unit_test(test_cancel_resize), cmocka_unit_test(test_mouse_resize),
     cmocka_unit_test(test_top_toolbar_overflow), cmocka_unit_test(test_bottom_toolbar_overflow),
     cmocka_unit_test(test_vertical_border_layout), cmocka_unit_test(test_horizontal_border_layout),
-    cmocka_unit_test(test_info_text_overflow)
+    cmocka_unit_test(test_info_text_overflow), cmocka_unit_test(test_collapse_keeps_workspace_visible)
   };
   return cmocka_run_group_tests(tests, NULL, NULL);
 #endif
