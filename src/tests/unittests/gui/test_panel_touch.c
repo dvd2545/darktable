@@ -233,6 +233,8 @@ static void _border_layout_test(gboolean horizontal)
   gtk_container_check_resize(GTK_CONTAINER(window));
   GtkAllocation allocation;
   gtk_widget_get_allocation(toggle, &allocation);
+  assert_int_equal(allocation.width, horizontal ? 64 : 13);
+  assert_int_equal(allocation.height, horizontal ? 13 : 64);
   int x, y;
   assert_true(gtk_widget_translate_coordinates(toggle, border, 0, 0, &x, &y));
   assert_int_equal(x + allocation.width / 2, gtk_widget_get_allocated_width(border) / 2);

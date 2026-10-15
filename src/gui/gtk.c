@@ -2519,7 +2519,10 @@ static void _init_main_table(GtkWidget *container)
     gtk_widget_set_margin_bottom(toggle, DT_PIXEL_APPLY_DPI(8));
     dt_gui_add_class(toggle, "dt_panel_toggle");
     if(borders[i] == DT_UI_BORDER_TOP)
+    {
+      gtk_widget_set_size_request(toggle, DT_PIXEL_APPLY_DPI(64), DT_PIXEL_APPLY_DPI(13));
       gtk_overlay_add_overlay(GTK_OVERLAY(ocda), toggle);
+    }
   }
 
   /* initialize the thumb panel */
@@ -3599,6 +3602,8 @@ static GtkWidget *_panel_resize_border(GtkWidget *panel, GtkWidget *toggle, cons
 
   gtk_widget_set_halign(toggle, GTK_ALIGN_CENTER);
   gtk_widget_set_valign(toggle, GTK_ALIGN_CENTER);
+  gtk_widget_set_size_request(toggle, DT_PIXEL_APPLY_DPI(horizontal ? 64 : 13),
+                              DT_PIXEL_APPLY_DPI(horizontal ? 13 : 64));
   gtk_widget_set_margin_start(toggle, 0);
   gtk_widget_set_margin_end(toggle, 0);
   gtk_widget_set_margin_top(toggle, 0);
