@@ -19,11 +19,17 @@
 #include <stddef.h>
 #include <setjmp.h>
 #include <cmocka.h>
+#include <gtk/gtk.h>
+
+static int scroll_ungrabs;
+static void dt_test_scroll_ungrab(GdkSeat *seat) { scroll_ungrabs++; }
 
 // keep size persistence isolated from the user's configuration
 #define dt_conf_get_int dt_test_panel_get_int
 #define dt_conf_set_int dt_test_panel_set_int
+#define gdk_seat_ungrab dt_test_scroll_ungrab
 #include "gui/gtk.c"
+#undef gdk_seat_ungrab
 #undef dt_conf_get_int
 #undef dt_conf_set_int
 
@@ -59,7 +65,8 @@ static void _panel_event(GtkWidget *handle, GdkDevice *source, GdkEventType type
                           double dx, double dy)
 {
   GdkEvent *event = gdk_event_new(type);
-  event->any.window = g_object_ref(gtk_widget_get_window(handle));
+  event->any.window = g_object_ref(GTK_IS_BUTTON(handle) ? gtk_button_get_event_window(GTK_BUTTON(handle))
+                                                        : gtk_widget_get_window(handle));
   if(type >= GDK_TOUCH_BEGIN && type <= GDK_TOUCH_CANCEL)
   {
     event->touch.sequence = (GdkEventSequence *)handle;
@@ -88,7 +95,7 @@ static void _panel_event(GtkWidget *handle, GdkDevice *source, GdkEventType type
   GdkDevice *pointer = gdk_seat_get_pointer(gdk_display_get_default_seat(gdk_display_get_default()));
   gdk_event_set_device(event, pointer);
   gdk_event_set_source_device(event, source ? source : pointer);
-  gtk_main_do_event(event);
+  _dispatch_touch_scroll_event(event, NULL);
   gdk_event_free(event);
 }
 
@@ -305,6 +312,53 @@ static void test_collapse_keeps_workspace_visible(void **state)
   gtk_widget_destroy(window);
 }
 
+static void test_panel_swipe_releases_input(void **state)
+{
+  GtkWidget *window = gtk_offscreen_window_new();
+  GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_container_add(GTK_CONTAINER(window), row);
+  GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_ALWAYS);
+  gtk_widget_set_size_request(scroll, 200, 200);
+  gtk_box_pack_start(GTK_BOX(row), scroll, TRUE, TRUE, 0);
+  GtkWidget *content = gtk_drawing_area_new();
+  gtk_widget_set_size_request(content, 200, 1200);
+  gtk_container_add(GTK_CONTAINER(scroll), content);
+  GtkWidget *outside = gtk_toggle_button_new_with_label("outside panel");
+  gtk_box_pack_start(GTK_BOX(row), outside, FALSE, FALSE, 0);
+  gtk_window_set_default_size(GTK_WINDOW(window), 400, 200);
+  gtk_widget_show_all(window);
+  gtk_container_check_resize(GTK_CONTAINER(window));
+  GTypeQuery query;
+  g_type_query(GDK_TYPE_DEVICE, &query);
+  static GType touch_type;
+  if(!touch_type)
+    touch_type = g_type_register_static_simple(GDK_TYPE_DEVICE, "DtScrollTestTouch",
+                                               query.class_size, NULL, query.instance_size, NULL, 0);
+  GdkDevice *touch = g_object_new(touch_type, "display", gdk_display_get_default(),
+                                  "name", "test touch", "type", GDK_DEVICE_TYPE_SLAVE,
+                                  "input-source", GDK_SOURCE_TOUCHSCREEN,
+                                  "input-mode", GDK_MODE_SCREEN, NULL);
+  scroll_ungrabs = 0;
+  _panel_event(content, touch, GDK_TOUCH_BEGIN, 0, 0);
+  _panel_event(content, touch, GDK_TOUCH_UPDATE, 0, -60);
+  _panel_event(content, touch, GDK_TOUCH_END, 0, -60);
+  assert_true(gtk_adjustment_get_value(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scroll))) > 0);
+  assert_true(scroll_ungrabs > 0);
+  _panel_event(outside, touch, GDK_TOUCH_BEGIN, 0, 0);
+  _panel_event(outside, touch, GDK_TOUCH_END, 0, 0);
+  assert_true(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(outside)));
+  scroll_ungrabs = 0;
+  _panel_event(content, touch, GDK_TOUCH_BEGIN, 0, 0);
+  _panel_event(content, touch, GDK_TOUCH_CANCEL, 0, 0);
+  assert_true(scroll_ungrabs > 0);
+  scroll_ungrabs = 0;
+  _panel_event(content, NULL, GDK_BUTTON_RELEASE, 0, 0);
+  assert_int_equal(scroll_ungrabs, 0);
+  gtk_widget_destroy(window);
+  g_object_unref(touch);
+}
+
 static void test_info_text_overflow(void **state)
 {
   dt_lib_module_t module = { 0 };
@@ -357,7 +411,8 @@ int main(int argc, char **argv)
     cmocka_unit_test(test_cancel_resize), cmocka_unit_test(test_mouse_resize),
     cmocka_unit_test(test_top_toolbar_overflow), cmocka_unit_test(test_bottom_toolbar_overflow),
     cmocka_unit_test(test_vertical_border_layout), cmocka_unit_test(test_horizontal_border_layout),
-    cmocka_unit_test(test_info_text_overflow), cmocka_unit_test(test_collapse_keeps_workspace_visible)
+    cmocka_unit_test(test_info_text_overflow), cmocka_unit_test(test_collapse_keeps_workspace_visible),
+    cmocka_unit_test(test_panel_swipe_releases_input)
   };
   return cmocka_run_group_tests(tests, NULL, NULL);
 #endif

@@ -2381,8 +2381,41 @@ static GtkWidget *_init_outer_border(const gint width,
   return widget;
 }
 
+#if !GTK_CHECK_VERSION(4, 0, 0)
+static void _dispatch_touch_scroll_event(GdkEvent *event, gpointer user_data)
+{
+  GdkSeat *seat = NULL;
+  const GdkEventType type = dt_gdk_event_get_type(event);
+  GdkDevice *source = (type == GDK_TOUCH_END || type == GDK_TOUCH_CANCEL || type == GDK_BUTTON_RELEASE)
+    ? gdk_event_get_source_device(event) : NULL;
+  if(source && gdk_device_get_source(source) == GDK_SOURCE_TOUCHSCREEN
+     && (type == GDK_TOUCH_END || type == GDK_TOUCH_CANCEL || type == GDK_BUTTON_RELEASE))
+  {
+    GtkWidget *target = gtk_get_event_widget(event);
+    if(target && (GTK_IS_SCROLLED_WINDOW(target)
+                  || gtk_widget_get_ancestor(target, GTK_TYPE_SCROLLED_WINDOW)))
+    {
+      GdkDevice *device = gdk_event_get_device(event);
+      seat = device ? gdk_device_get_seat(device) : NULL;
+      if(seat) g_object_ref(seat);
+    }
+  }
+  // kinetic scrolling can consume the release before any child control sees it
+  gtk_main_do_event(event);
+  if(seat)
+  {
+    gdk_seat_ungrab(seat);
+    g_object_unref(seat);
+  }
+}
+#endif
+
 static void _init_widgets(dt_gui_gtk_t *gui)
 {
+
+#if !GTK_CHECK_VERSION(4, 0, 0)
+  gdk_event_handler_set(_dispatch_touch_scroll_event, NULL, NULL);
+#endif
 
   GtkWidget *container;
   GtkWidget *widget;
