@@ -106,8 +106,8 @@ changes (where available).
 
 - Panel resize handles now support finger drags on visible divider bars.
   Collapse controls sit in the middle of the dividers beside the center
-  workspace and above the filmstrip. Compact dividers and controls reserve
-  more space for the image.
+  workspace and above the filmstrip. Thin dividers reserve more space for
+  the image, with longer collapse buttons along each bar for easier tapping.
 
 - The image information line in center toolbars keeps its full text width
   and scrolls when space is limited instead of shortening the text.
